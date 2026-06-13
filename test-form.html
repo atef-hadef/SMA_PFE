@@ -1,0 +1,498 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>FlowPilot — Demandez une démo gratuite</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: #f8fafc;
+      color: #0f172a;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+        "Helvetica Neue", Arial, sans-serif;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 32px 16px;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .card {
+      width: 100%;
+      max-width: 520px;
+      background: #ffffff;
+      border-radius: 12px;
+      box-shadow: 0 4px 16px rgba(15, 23, 42, 0.08),
+                  0 1px 3px rgba(15, 23, 42, 0.04);
+      padding: 40px 36px;
+    }
+
+    .brand {
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: #1d4ed8;
+      margin: 0 0 8px;
+    }
+
+    h1 {
+      margin: 0 0 8px;
+      font-size: 24px;
+      font-weight: 700;
+      color: #0f172a;
+      line-height: 1.25;
+    }
+
+    .subtitle {
+      margin: 0 0 28px;
+      font-size: 14px;
+      color: #64748b;
+      line-height: 1.55;
+    }
+
+    .row {
+      display: grid;
+      gap: 16px;
+      grid-template-columns: 1fr 1fr;
+    }
+
+    .field {
+      margin-bottom: 16px;
+    }
+
+    .field.full { grid-column: 1 / -1; }
+
+    .field label {
+      display: block;
+      font-size: 13px;
+      font-weight: 600;
+      color: #334155;
+      margin-bottom: 6px;
+    }
+
+    .field .required { color: #dc2626; margin-left: 2px; }
+
+    .field input,
+    .field textarea {
+      width: 100%;
+      padding: 10px 12px;
+      font-size: 14px;
+      font-family: inherit;
+      color: #0f172a;
+      background: #ffffff;
+      border: 1px solid #cbd5e1;
+      border-radius: 6px;
+      outline: none;
+      transition: border-color 0.15s, box-shadow 0.15s;
+    }
+
+    .field input::placeholder,
+    .field textarea::placeholder {
+      color: #94a3b8;
+    }
+
+    .field input:focus,
+    .field textarea:focus {
+      border-color: #1d4ed8;
+      box-shadow: 0 0 0 3px rgba(29, 78, 216, 0.12);
+    }
+
+    .field textarea {
+      resize: vertical;
+      min-height: 120px;
+      line-height: 1.55;
+    }
+
+    .field.invalid input,
+    .field.invalid textarea {
+      border-color: #dc2626;
+      background: #fef2f2;
+    }
+
+    .field .error-msg {
+      display: none;
+      margin-top: 4px;
+      font-size: 12px;
+      color: #dc2626;
+    }
+
+    .field.invalid .error-msg {
+      display: block;
+    }
+
+    .checkbox {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      margin: 4px 0 20px;
+    }
+
+    .checkbox input {
+      margin-top: 3px;
+      width: 16px;
+      height: 16px;
+      accent-color: #1d4ed8;
+      cursor: pointer;
+      flex-shrink: 0;
+    }
+
+    .checkbox label {
+      font-size: 13px;
+      line-height: 1.5;
+      color: #475569;
+      cursor: pointer;
+    }
+
+    .checkbox.invalid label {
+      color: #dc2626;
+    }
+
+    .submit {
+      width: 100%;
+      padding: 12px;
+      background: #1d4ed8;
+      color: #ffffff;
+      font-size: 15px;
+      font-weight: 600;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+
+    .submit:hover:not(:disabled) {
+      background: #1e40af;
+    }
+
+    .submit:disabled {
+      background: #94a3b8;
+      cursor: not-allowed;
+    }
+
+    .alert {
+      padding: 12px 14px;
+      border-radius: 6px;
+      font-size: 14px;
+      line-height: 1.5;
+      margin-bottom: 18px;
+      white-space: pre-line;
+    }
+
+    .alert.success {
+      background: #ecfdf5;
+      color: #065f46;
+      border: 1px solid #6ee7b7;
+    }
+
+    .alert.error {
+      background: #fef2f2;
+      color: #991b1b;
+      border: 1px solid #fca5a5;
+    }
+
+    .footer-note {
+      margin-top: 14px;
+      font-size: 11px;
+      color: #94a3b8;
+      text-align: center;
+    }
+
+    /* Honeypot — invisible aux humains, piège à bots */
+    .honeypot {
+      position: absolute;
+      left: -10000px;
+      top: auto;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+    }
+
+    @media (max-width: 540px) {
+      .card { padding: 28px 22px; }
+      .row { grid-template-columns: 1fr; }
+      h1 { font-size: 20px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <p class="brand">FlowPilot</p>
+    <h1>Demandez une démo gratuite</h1>
+    <p class="subtitle">
+      Remplissez ce formulaire et notre équipe vous contacte sous 24h.
+    </p>
+
+    <div id="alertBox"></div>
+
+    <form id="leadForm" novalidate>
+      <div class="row">
+        <div class="field" data-field="first_name">
+          <label for="first_name">Prénom <span class="required">*</span></label>
+          <input
+            type="text"
+            id="first_name"
+            name="first_name"
+            autocomplete="given-name"
+          />
+          <p class="error-msg">Veuillez renseigner votre prénom.</p>
+        </div>
+
+        <div class="field" data-field="last_name">
+          <label for="last_name">Nom <span class="required">*</span></label>
+          <input
+            type="text"
+            id="last_name"
+            name="last_name"
+            autocomplete="family-name"
+          />
+          <p class="error-msg">Veuillez renseigner votre nom.</p>
+        </div>
+      </div>
+
+      <div class="field full" data-field="email">
+        <label for="email">Email professionnel <span class="required">*</span></label>
+        <input
+          type="email"
+          id="email"
+          name="email"
+          autocomplete="email"
+          placeholder="nom@entreprise.com"
+        />
+        <p class="error-msg">Veuillez renseigner un email valide.</p>
+      </div>
+
+      <div class="field full" data-field="phone">
+        <label for="phone">Numéro de téléphone</label>
+        <input
+          type="text"
+          id="phone"
+          name="phone"
+          autocomplete="tel"
+          placeholder="+216 XX XXX XXX"
+        />
+      </div>
+
+      <div class="field full" data-field="company_name">
+        <label for="company_name">Nom de l'entreprise <span class="required">*</span></label>
+        <input
+          type="text"
+          id="company_name"
+          name="company_name"
+          autocomplete="organization"
+        />
+        <p class="error-msg">Veuillez renseigner le nom de votre entreprise.</p>
+      </div>
+
+      <div class="field full" data-field="message">
+        <label for="message">Message <span class="required">*</span></label>
+        <textarea
+          id="message"
+          name="message"
+          rows="5"
+          placeholder="Bonjour, je voudrais en savoir plus sur FlowPilot. Nous sommes une entreprise de X personnes et nous cherchons à..."
+        ></textarea>
+        <p class="error-msg">Veuillez écrire un message d'au moins 10 caractères.</p>
+      </div>
+
+      <div class="checkbox" data-field="consent">
+        <input type="checkbox" id="consent" name="consent" />
+        <label for="consent">
+          J'accepte d'être contacté par l'équipe FlowPilot concernant ma demande.
+          <span class="required">*</span>
+        </label>
+      </div>
+
+      <!-- Honeypot anti-spam : doit rester vide. Caché aux humains. -->
+      <div class="honeypot" aria-hidden="true">
+        <label for="website">Ne pas remplir ce champ</label>
+        <input
+          type="text"
+          id="website"
+          name="website"
+          tabindex="-1"
+          autocomplete="off"
+        />
+      </div>
+
+      <button type="submit" class="submit" id="submitBtn">
+        Envoyer ma demande
+      </button>
+
+      <p class="footer-note">
+        Vos informations restent confidentielles et ne sont utilisées que pour vous recontacter.
+      </p>
+    </form>
+  </div>
+
+  <script>
+    (function () {
+      'use strict';
+
+      const BACKEND_URL = 'http://localhost:8000/api/crm/leads/public';
+      const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+      const MESSAGE_MIN_LENGTH = 10;
+
+      const form = document.getElementById('leadForm');
+      const alertBox = document.getElementById('alertBox');
+      const submitBtn = document.getElementById('submitBtn');
+
+      function setFieldInvalid(name, isInvalid) {
+        const field = document.querySelector('[data-field="' + name + '"]');
+        if (!field) return;
+        field.classList.toggle('invalid', isInvalid);
+      }
+
+      function clearAllErrors() {
+        document.querySelectorAll('.field.invalid, .checkbox.invalid').forEach(function (el) {
+          el.classList.remove('invalid');
+        });
+      }
+
+      function showAlert(kind, text) {
+        alertBox.innerHTML = '<div class="alert ' + kind + '">' + text + '</div>';
+        alertBox.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }
+
+      function clearAlert() {
+        alertBox.innerHTML = '';
+      }
+
+      function getValue(name) {
+        const el = form.elements.namedItem(name);
+        if (!el) return '';
+        return (el.value || '').trim();
+      }
+
+      function validate(values, consentChecked) {
+        clearAllErrors();
+        const errors = [];
+
+        if (!values.first_name) {
+          setFieldInvalid('first_name', true);
+          errors.push('first_name');
+        }
+        if (!values.last_name) {
+          setFieldInvalid('last_name', true);
+          errors.push('last_name');
+        }
+        if (!values.email || !EMAIL_REGEX.test(values.email)) {
+          setFieldInvalid('email', true);
+          errors.push('email');
+        }
+        if (!values.company_name) {
+          setFieldInvalid('company_name', true);
+          errors.push('company_name');
+        }
+        if (!values.message || values.message.length < MESSAGE_MIN_LENGTH) {
+          setFieldInvalid('message', true);
+          errors.push('message');
+        }
+        if (!consentChecked) {
+          const consentBlock = document.querySelector('[data-field="consent"]');
+          if (consentBlock) consentBlock.classList.add('invalid');
+          errors.push('consent');
+        }
+        return errors;
+      }
+
+      form.addEventListener('submit', async function (event) {
+        event.preventDefault();
+        clearAlert();
+
+        const values = {
+          first_name: getValue('first_name'),
+          last_name: getValue('last_name'),
+          email: getValue('email').toLowerCase(),
+          phone: getValue('phone'),
+          company_name: getValue('company_name'),
+          message: getValue('message'),
+        };
+        const consentChecked = form.elements.namedItem('consent').checked;
+
+        const errors = validate(values, consentChecked);
+        if (errors.length > 0) {
+          showAlert(
+            'error',
+            'Merci de corriger les champs marqués en rouge avant d\'envoyer.'
+          );
+          return;
+        }
+
+        const payload = {
+          full_name: values.first_name + ' ' + values.last_name,
+          email: values.email,
+          phone: values.phone || '',
+          company_name: values.company_name,
+          source: 'website_form',
+          message: values.message,
+          consent_to_contact: true,
+          location: '',
+          product_service: 'FlowPilot CRM',
+          // Honeypot : doit rester vide
+          website: getValue('website'),
+        };
+
+        // Debug : visible dans la console du navigateur (F12)
+        console.log('[FlowPilot] Payload envoyé au backend :', payload);
+
+        submitBtn.disabled = true;
+        const originalLabel = submitBtn.textContent;
+        submitBtn.textContent = 'Envoi en cours...';
+
+        try {
+          const response = await fetch(BACKEND_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          });
+
+          if (!response.ok) {
+            // Try to extract a meaningful error message from the backend
+            let detail = 'HTTP ' + response.status;
+            try {
+              const data = await response.json();
+              if (data && (data.detail || data.message)) {
+                detail = data.detail || data.message;
+              } else if (data && data.error && data.error.message) {
+                detail = data.error.message;
+              }
+            } catch (_) { /* body not JSON */ }
+            throw new Error(detail);
+          }
+
+          form.style.display = 'none';
+          showAlert(
+            'success',
+            '✅ Demande envoyée ! Notre équipe vous contacte sous 24h.'
+          );
+        } catch (err) {
+          console.error('[FlowPilot] Erreur envoi :', err);
+          const message = err && err.message
+            ? err.message
+            : 'Une erreur réseau est survenue.';
+          showAlert('error', '❌ ' + message);
+          submitBtn.disabled = false;
+          submitBtn.textContent = originalLabel;
+        }
+      });
+
+      // Retirer l'état "invalide" dès que l'utilisateur corrige
+      ['input', 'change'].forEach(function (eventName) {
+        form.addEventListener(eventName, function (event) {
+          const target = event.target;
+          if (!target || !target.name) return;
+          const wrapper = target.closest('.field, .checkbox');
+          if (wrapper && wrapper.classList.contains('invalid')) {
+            wrapper.classList.remove('invalid');
+          }
+        });
+      });
+    })();
+  </script>
+</body>
+</html>

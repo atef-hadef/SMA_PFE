@@ -1,0 +1,16 @@
+﻿{
+  "lead_id": "lead_n8n_trace_test_001",
+  "full_name": "Nour Ben Salem",
+  "email": "nour.bensalem@example.com",
+  "phone": "+21622333444",
+  "company_name": "Smart Business Tunisia",
+  "source": "website_form",
+  "message": "Nous voulons automatiser notre processus commercial avec un CRM intelligent et prioriser les prospects les plus importants.",
+  "product_service": "AI CRM Automation",
+  "intention": "purchase",
+  "urgency": "high",
+  "priority": "high",
+  "ai_summary": "Lead intéressé par une solution CRM intelligente avec un fort potentiel commercial.",
+  "recommended_action": "Planifier une démonstration et envoyer une proposition personnalisée.",
+  "requested_by": "user_030"
+}
