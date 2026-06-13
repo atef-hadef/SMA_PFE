@@ -1,0 +1,138 @@
+@import "tailwindcss";
+
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family:
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    "Segoe UI",
+    Roboto,
+    "Helvetica Neue",
+    Arial,
+    sans-serif;
+  background-color: #0b1020;
+  color: #e2e8f0;
+}
+
+/*
+ * Light theme.
+ * The whole UI is authored dark-first with literal Tailwind palette classes
+ * (bg-slate-950, text-white, text-emerald-300, ...). Tailwind v4 compiles those
+ * to `var(--color-*)`, so toggling the theme is done purely by overriding those
+ * variables here — no component markup changes required.
+ *
+ * Neutral scale is INVERTED: dark surfaces (slate-900/950) become light, and
+ * light foregrounds (white, slate-100) become dark. Accent text shades
+ * (200/300, meant for dark backgrounds) are darkened so they stay readable on
+ * light surfaces, while accent tint backgrounds (950) are lightened.
+ */
+:root.light {
+  color-scheme: light;
+
+  /* Inverted neutral scale: dark surfaces -> light, light foregrounds -> dark.
+     Tuned so text keeps an AA-readable hierarchy on white surfaces. */
+  --color-white: #0f172a; /* headings */
+  --color-slate-50: #0f172a;
+  --color-slate-100: #1e293b; /* strong body text */
+  --color-slate-200: #334155;
+  --color-slate-300: #475569; /* secondary text */
+  --color-slate-400: #586477; /* muted labels  (~6:1 on white) */
+  --color-slate-500: #717c8d; /* dim helpers   (~4.3:1 on white) */
+  --color-slate-600: #9aa5b4;
+  --color-slate-700: #d6dde6; /* hover / divider borders */
+  --color-slate-800: #e4e9f0; /* card borders */
+  --color-slate-900: #ffffff; /* card / elevated surface */
+  --color-slate-950: #edf0f5; /* page surface */
+
+  /* Accent text shades (200/300 authored for dark bg) -> darker, readable */
+  --color-emerald-200: #047857;
+  --color-emerald-300: #059669;
+  --color-sky-200: #0369a1;
+  --color-sky-300: #0284c7;
+  --color-blue-200: #1d4ed8;
+  --color-blue-300: #2563eb;
+  --color-indigo-200: #4338ca;
+  --color-indigo-300: #4f46e5;
+  --color-violet-200: #6d28d9;
+  --color-violet-300: #7c3aed;
+  --color-rose-200: #be123c;
+  --color-rose-300: #e11d48;
+  --color-red-200: #b91c1c;
+  --color-red-300: #dc2626;
+  --color-amber-200: #b45309;
+  --color-amber-300: #d97706;
+  --color-orange-200: #c2410c;
+  --color-orange-300: #ea580c;
+
+  /* Accent tint backgrounds (950 authored as dark tint) -> soft light tints */
+  --color-emerald-950: #d1fae5;
+  --color-sky-950: #e0f2fe;
+  --color-blue-950: #dbeafe;
+  --color-indigo-950: #e0e7ff;
+  --color-violet-950: #ede9fe;
+  --color-rose-950: #ffe4e6;
+  --color-red-950: #fee2e2;
+  --color-amber-950: #fef3c7;
+  --color-orange-950: #ffedd5;
+}
+
+:root.light body {
+  background-color: #eef1f6;
+  color: #0f172a;
+}
+
+/* Depth: after the inversion, colored slate/accent shadows resolve to a near-white
+   color and disappear, leaving cards flat. Route every colored shadow to one soft
+   neutral elevation so surfaces lift cleanly off the page. */
+:root.light [class*="shadow-slate-"],
+:root.light [class*="shadow-emerald-"],
+:root.light [class*="shadow-sky-"],
+:root.light [class*="shadow-amber-"],
+:root.light [class*="shadow-rose-"],
+:root.light [class*="shadow-violet-"],
+:root.light [class*="shadow-indigo-"],
+:root.light [class*="shadow-blue-"] {
+  --tw-shadow-color: rgba(15, 23, 42, 0.08) !important;
+}
+
+/* Primary / urgent buttons use `text-slate-950` for a crisp dark label on a vivid
+   accent (6.6:1 in dark mode). The inversion would flip that label light (2.3:1),
+   so keep it dark here to preserve the high-contrast, modern button look. */
+:root.light .bg-emerald-500.text-slate-950,
+:root.light .bg-emerald-400.text-slate-950,
+:root.light .bg-amber-400.text-slate-950,
+:root.light .bg-amber-300.text-slate-950 {
+  color: #0b1220;
+}
+
+:root.light *::-webkit-scrollbar-thumb {
+  background-color: rgba(100, 116, 139, 0.35);
+}
+
+/* Native scrollbars tuned for dark theme */
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+*::-webkit-scrollbar-thumb {
+  background-color: rgba(148, 163, 184, 0.25);
+  border-radius: 9999px;
+}
+
+*::-webkit-scrollbar-track {
+  background-color: transparent;
+}
+
+/* Safer default focus ring */
+:focus-visible {
+  outline: 2px solid rgba(16, 185, 129, 0.55);
+  outline-offset: 2px;
+}

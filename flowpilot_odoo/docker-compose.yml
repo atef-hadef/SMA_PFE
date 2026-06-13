@@ -1,0 +1,42 @@
+services:
+  flowpilot_odoo_db:
+    image: postgres:15
+    container_name: flowpilot_odoo_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: postgres
+      POSTGRES_USER: odoo
+      POSTGRES_PASSWORD: odoo_password
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - flowpilot_odoo_db_data:/var/lib/postgresql/data/pgdata
+    networks:
+      - flowpilot_odoo_network
+
+  flowpilot_odoo:
+    image: odoo:18.0
+    container_name: flowpilot_odoo
+    restart: unless-stopped
+    depends_on:
+      - flowpilot_odoo_db
+    ports:
+      - "8069:8069"
+    environment:
+      HOST: flowpilot_odoo_db
+      PORT: 5432
+      USER: odoo
+      PASSWORD: odoo_password
+    volumes:
+      - flowpilot_odoo_web_data:/var/lib/odoo
+      - ./config:/etc/odoo
+      - ./addons:/mnt/extra-addons
+    networks:
+      - flowpilot_odoo_network
+
+volumes:
+  flowpilot_odoo_db_data:
+  flowpilot_odoo_web_data:
+
+networks:
+  flowpilot_odoo_network:
+    driver: bridge
