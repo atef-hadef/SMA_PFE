@@ -142,3 +142,14 @@ class N8nCallbackResult(BaseModel):
     workflow_execution_id: str | None = None
     agent_run_id: str | None = None
     status: str
+    assigned_to: str | None = None
+    assigned_to_name: str | None = None
+    assigned_to_email: str | None = None
+    # Scoring ML (renseigné par le callback de scoring) -> utilisé par le workflow
+    # CRM_01 pour le routing intelligent et l'email d'assignation enrichi.
+    ml_score: int | None = None
+    ml_category: str | None = None
+    ml_confidence: float | None = None
+    ml_delta: int | None = None
+    ml_explanation: str | None = None
+    ml_top_factors: list[dict] | None = None

@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api import (
+    activities,
     admin,
     agents,
     assistant,
@@ -13,6 +14,7 @@ from app.api import (
     db_health,
     health,
     leave_requests,
+    ml,
     n8n_callbacks,
     workflow_monitoring,
 )
@@ -40,6 +42,7 @@ app.include_router(auth.router, prefix=settings.API_PREFIX)
 app.include_router(assistant.router, prefix=settings.API_PREFIX)
 app.include_router(db_health.router, prefix=settings.API_PREFIX)
 app.include_router(dashboard.router, prefix=settings.API_PREFIX)
+app.include_router(activities.router, prefix=settings.API_PREFIX)
 app.include_router(leave_requests.router, prefix=settings.API_PREFIX)
 app.include_router(crm.router, prefix=settings.API_PREFIX)
 app.include_router(crm_tasks.router, prefix=settings.API_PREFIX)
@@ -47,4 +50,5 @@ app.include_router(crm_deals.router, prefix=settings.API_PREFIX)
 app.include_router(workflow_monitoring.router, prefix=settings.API_PREFIX)
 app.include_router(agents.router, prefix=settings.API_PREFIX)
 app.include_router(admin.router, prefix=settings.API_PREFIX)
+app.include_router(ml.router, prefix=settings.API_PREFIX)
 app.include_router(n8n_callbacks.router, prefix=f"{settings.API_PREFIX}/n8n")

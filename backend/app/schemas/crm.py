@@ -242,6 +242,13 @@ class CrmLeadDetail(CrmLeadListItem):
     ai_summary: str
     recommended_action: str
     notes: str | None = None
+    # Scoring ML (module Data Science). Null tant que le modèle n'a pas scoré le
+    # lead -> le frontend retombe alors sur le score LLM (score) inchangé.
+    ml_score: int | None = None
+    ml_probability: float | None = None
+    ml_category: str | None = None
+    ml_confidence: float | None = None
+    shap_explanation: dict | None = None
     drafts: list[CrmLeadDraft] = Field(default_factory=list)
     interaction_history: list[CrmInteractionHistoryItem] = Field(default_factory=list)
 

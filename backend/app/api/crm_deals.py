@@ -1,9 +1,10 @@
 """REST endpoints for CRM Deals (WF 07 - Deal Pipeline Update)."""
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.api.dependencies import require_permission
+from app.core.permissions import crm_scoped_owner_id
 from app.core.database import get_db
 from app.schemas.auth import AuthUser
 from app.schemas.common import ApiResponse
@@ -41,11 +42,14 @@ def read_crm_deals(
     owner_user_id: str | None = None,
     lead_id: str | None = None,
     db: Session = Depends(get_db),
-    _user=Depends(require_permission("crm.deals.view")),
+    current_user: AuthUser = Depends(require_permission("crm.deals.view")),
 ) -> ApiResponse[CrmDealListResponse]:
+    # role_sales : forcé sur ses propres deals ; admin/manager : filtre libre.
+    scoped = crm_scoped_owner_id(current_user)
+    effective_owner = scoped if scoped is not None else owner_user_id
     return ApiResponse(
         success=True,
-        data=list_deals(db, stage=stage, owner_user_id=owner_user_id, lead_id=lead_id),
+        data=list_deals(db, stage=stage, owner_user_id=effective_owner, lead_id=lead_id),
     )
 
 
@@ -53,9 +57,13 @@ def read_crm_deals(
 def read_crm_deal(
     deal_id: str,
     db: Session = Depends(get_db),
-    _user=Depends(require_permission("crm.deals.view")),
+    current_user: AuthUser = Depends(require_permission("crm.deals.view")),
 ) -> ApiResponse[CrmDealItem]:
-    return ApiResponse(success=True, data=get_deal(db, deal_id))
+    deal = get_deal(db, deal_id)
+    scoped = crm_scoped_owner_id(current_user)
+    if scoped is not None and deal.owner_user_id != scoped:
+        raise HTTPException(status_code=403, detail="Accès refusé : ce deal ne vous appartient pas.")
+    return ApiResponse(success=True, data=deal)
 
 
 @router.post("/crm/deals", response_model=ApiResponse[CrmDealItem])

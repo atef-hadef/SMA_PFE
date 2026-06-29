@@ -3,6 +3,10 @@ import unittest
 from datetime import date
 from unittest.mock import patch
 
+import pytest
+
+ODOO_DEPRECATED_REASON = "Odoo workflow deprecated - standalone mode active"
+
 from fastapi import HTTPException
 from sqlalchemy import create_engine, event, select
 from sqlalchemy.orm import Session
@@ -236,6 +240,7 @@ class LeaveCallbackServiceTest(unittest.TestCase):
         self.assertEqual(leave_request.decision_comment, "Approved locally.")
         self.assertIn("Local manager decision was preserved", leave_request.automation_summary)
 
+    @pytest.mark.skip(reason=ODOO_DEPRECATED_REASON)
     def test_create_leave_request_triggers_workflow_1_with_odoo_payload(self) -> None:
         with patch(
             "app.services.leave_service.urlopen",
@@ -481,6 +486,7 @@ class LeaveCallbackServiceTest(unittest.TestCase):
         )
         self.assertEqual(mocked_urlopen.call_count, 1)
 
+    @pytest.mark.skip(reason=ODOO_DEPRECATED_REASON)
     def test_create_leave_request_with_sufficient_balance_triggers_workflow_1(self) -> None:
         with patch(
             "app.services.leave_service.urlopen",
@@ -520,6 +526,7 @@ class LeaveCallbackServiceTest(unittest.TestCase):
         self.assertEqual(posted_payload["flowpilot_request_id"], result.id)
         self.assertEqual(posted_payload["requested_days"], 2.0)
 
+    @pytest.mark.skip(reason=ODOO_DEPRECATED_REASON)
     def test_approve_leave_request_triggers_workflow_2(self) -> None:
         leave_request = self.db.get(LeaveRequest, "leave_callback_test_001")
         self.assertIsNotNone(leave_request)

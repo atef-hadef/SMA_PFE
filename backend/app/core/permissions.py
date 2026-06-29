@@ -103,6 +103,8 @@ ROLE_PERMISSIONS = {
         "crm.tasks.manage",
         "crm.deals.view",
         "crm.deals.manage",
+        "leave.request.create",
+        "leave.request.view_own",
     ],
     "role_hr": [
         "dashboard.view",
@@ -125,3 +127,21 @@ ROLE_PERMISSIONS = {
         "agents.run",
     ],
 }
+
+
+# Rôles avec visibilité CRM complète (pas d'isolation par propriétaire).
+CRM_FULL_VISIBILITY_ROLE_IDS = {"role_admin", "role_manager"}
+
+
+def crm_scoped_owner_id(current_user) -> str | None:
+    """Id propriétaire auquel un commercial (role_sales) est restreint.
+
+    Renvoie None pour les rôles à visibilité complète (admin/manager) et pour
+    les appelants internes/non authentifiés (current_user=None) -> accès complet.
+    Sert à appliquer l'isolation par commercial sur leads, tâches et deals.
+    """
+    if current_user is None:
+        return None
+    if getattr(current_user, "role_id", None) in CRM_FULL_VISIBILITY_ROLE_IDS:
+        return None
+    return getattr(current_user, "id", None)

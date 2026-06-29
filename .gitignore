@@ -93,3 +93,7 @@ out
 
 # n8n workflows exports - may contain API keys or credentials
 workflows/*
+
+# MLflow local tracking store + large model artifacts (regenerable by retraining)
+ml/mlruns/
+*.pkl

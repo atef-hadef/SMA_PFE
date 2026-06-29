@@ -1,0 +1,18 @@
+{
+  "current_production": "v1.0",
+  "models": [
+    {
+      "version": "v1.0",
+      "trained_at": "2026-06-28",
+      "algorithm": "LogisticRegression",
+      "auc_roc": 0.7935,
+      "f1_score": 0.6667,
+      "n_features": 68,
+      "n_training_samples": 4000,
+      "improvement_vs_llm": "+10.2%",
+      "model_file": "best_model.joblib",
+      "status": "production",
+      "mlflow_run_id": "525730452b21487789b95f5b1725193c"
+    }
+  ]
+}

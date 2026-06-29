@@ -1,6 +1,6 @@
 """REST endpoints for CRM Tasks (WF 06)."""
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.api.dependencies import (
@@ -8,6 +8,7 @@ from app.api.dependencies import (
     require_internal_secret,
     require_permission,
 )
+from app.core.permissions import crm_scoped_owner_id
 from app.core.database import get_db
 from app.schemas.auth import AuthUser
 from app.schemas.common import ApiResponse
@@ -70,11 +71,14 @@ def read_crm_tasks(
     owner_user_id: str | None = None,
     lead_id: str | None = None,
     db: Session = Depends(get_db),
-    _user=Depends(require_permission("crm.tasks.view")),
+    current_user: AuthUser = Depends(require_permission("crm.tasks.view")),
 ) -> ApiResponse[CrmTaskListResponse]:
+    # role_sales : forcé sur ses propres tâches ; admin/manager : filtre libre.
+    scoped = crm_scoped_owner_id(current_user)
+    effective_owner = scoped if scoped is not None else owner_user_id
     return ApiResponse(
         success=True,
-        data=list_tasks(db, status=status, owner_user_id=owner_user_id, lead_id=lead_id),
+        data=list_tasks(db, status=status, owner_user_id=effective_owner, lead_id=lead_id),
     )
 
 
@@ -114,9 +118,13 @@ def acknowledge_task_reminders(
 def read_crm_task(
     task_id: str,
     db: Session = Depends(get_db),
-    _user=Depends(require_permission("crm.tasks.view")),
+    current_user: AuthUser = Depends(require_permission("crm.tasks.view")),
 ) -> ApiResponse[CrmTaskItem]:
-    return ApiResponse(success=True, data=get_task(db, task_id))
+    item = get_task(db, task_id)
+    scoped = crm_scoped_owner_id(current_user)
+    if scoped is not None and item.owner_user_id != scoped:
+        raise HTTPException(status_code=403, detail="Accès refusé : cette tâche ne vous appartient pas.")
+    return ApiResponse(success=True, data=item)
 
 
 @router.post("/crm/tasks", response_model=ApiResponse[CrmTaskItem])

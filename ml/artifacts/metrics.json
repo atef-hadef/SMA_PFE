@@ -1,0 +1,139 @@
+{
+  "trained_at": "2026-06-28",
+  "n_training_samples": 4000,
+  "n_features": 68,
+  "models": [
+    {
+      "model_name": "LogisticRegression",
+      "auc_roc": 0.7935,
+      "auc_pr": 0.7372,
+      "f1_score": 0.6667,
+      "precision": 0.695,
+      "recall": 0.6406,
+      "brier_score": 0.1831,
+      "precision_at_20": 0.8,
+      "lift_at_20": 1.8433,
+      "confusion_matrix": [
+        [
+          278,
+          122
+        ],
+        [
+          156,
+          444
+        ]
+      ]
+    },
+    {
+      "model_name": "RandomForest",
+      "auc_roc": 0.7851,
+      "auc_pr": 0.7297,
+      "f1_score": 0.6586,
+      "precision": 0.6911,
+      "recall": 0.629,
+      "brier_score": 0.1874,
+      "precision_at_20": 0.765,
+      "lift_at_20": 1.7627,
+      "confusion_matrix": [
+        [
+          273,
+          122
+        ],
+        [
+          161,
+          444
+        ]
+      ]
+    },
+    {
+      "model_name": "XGBoost",
+      "auc_roc": 0.7801,
+      "auc_pr": 0.7249,
+      "f1_score": 0.6841,
+      "precision": 0.7086,
+      "recall": 0.6613,
+      "brier_score": 0.1898,
+      "precision_at_20": 0.81,
+      "lift_at_20": 1.8664,
+      "confusion_matrix": [
+        [
+          287,
+          118
+        ],
+        [
+          147,
+          448
+        ]
+      ]
+    },
+    {
+      "model_name": "LightGBM",
+      "auc_roc": 0.7817,
+      "auc_pr": 0.7241,
+      "f1_score": 0.6667,
+      "precision": 0.7033,
+      "recall": 0.6336,
+      "brier_score": 0.1894,
+      "precision_at_20": 0.78,
+      "lift_at_20": 1.7972,
+      "confusion_matrix": [
+        [
+          275,
+          116
+        ],
+        [
+          159,
+          450
+        ]
+      ]
+    },
+    {
+      "model_name": "LLM Baseline",
+      "auc_roc": 0.72,
+      "auc_pr": 0.6431,
+      "f1_score": 0.6062,
+      "precision": 0.6041,
+      "recall": 0.6083,
+      "brier_score": 0.233,
+      "precision_at_20": 0.715,
+      "lift_at_20": 1.6475,
+      "confusion_matrix": [
+        [
+          264,
+          173
+        ],
+        [
+          170,
+          393
+        ]
+      ]
+    }
+  ],
+  "llm_baseline": {
+    "model_name": "LLM Baseline",
+    "auc_roc": 0.72,
+    "auc_pr": 0.6431,
+    "f1_score": 0.6062,
+    "precision": 0.6041,
+    "recall": 0.6083,
+    "brier_score": 0.233,
+    "precision_at_20": 0.715,
+    "lift_at_20": 1.6475,
+    "confusion_matrix": [
+      [
+        264,
+        173
+      ],
+      [
+        170,
+        393
+      ]
+    ]
+  },
+  "best_model": {
+    "name": "LogisticRegression",
+    "version": "v1.0",
+    "auc_roc": 0.7935,
+    "improvement_vs_llm": "+10.2%"
+  }
+}

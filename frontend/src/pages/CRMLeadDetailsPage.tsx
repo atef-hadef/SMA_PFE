@@ -23,6 +23,8 @@ import {
   generateCommunicationDraft,
   getCrmLeadById,
   getLeadDrafts,
+  getLeadResponses,
+  recordLeadResponse,
   rejectEmailDraft,
   reviewEmailDraft,
   sendApprovedEmailDraft,
@@ -44,6 +46,8 @@ import type {
   CrmEmailDraftItem,
   CrmInteractionHistoryItem,
   CrmLeadDetail,
+  CrmLeadResponseItem,
+  CrmLeadResponseType,
 } from '../services/crmService'
 import {
   formatCrmCurrency,
@@ -751,6 +755,41 @@ type ConfirmCustomerState = {
   conversion_note: string
 }
 
+// Types de réponse client proposés dans la modale (FIX 3). `no_response` existe
+// côté backend mais n'est pas exposé ici — on n'enregistre que des réponses reçues.
+const RESPONSE_TYPE_OPTIONS: { value: CrmLeadResponseType; label: string }[] = [
+  { value: 'interested', label: 'Intéressé' },
+  { value: 'not_interested', label: 'Pas intéressé' },
+  { value: 'needs_more_info', label: "Demande d'informations" },
+  { value: 'callback_requested', label: 'Demande de rappel' },
+]
+
+const RESPONSE_TYPE_LABELS: Record<CrmLeadResponseType, string> = {
+  interested: 'Intéressé',
+  not_interested: 'Pas intéressé',
+  needs_more_info: "Demande d'informations",
+  callback_requested: 'Demande de rappel',
+  no_response: 'Pas de réponse',
+}
+
+// La date de prochaine action n'a de sens que pour ces deux types (relance/rappel).
+function responseTypeNeedsDate(type: CrmLeadResponseType): boolean {
+  return type === 'needs_more_info' || type === 'callback_requested'
+}
+
+function getResponseTypeTone(type: CrmLeadResponseType): StatusType {
+  if (type === 'interested') return 'success'
+  if (type === 'not_interested') return 'danger'
+  if (type === 'callback_requested') return 'warning'
+  return 'info'
+}
+
+type ResponseFormState = {
+  response_type: CrmLeadResponseType
+  notes: string
+  next_action_date: string
+}
+
 function CRMLeadDetailsPage() {
   const location = useLocation()
   const navigate = useNavigate()
@@ -761,6 +800,7 @@ function CRMLeadDetailsPage() {
   const [drafts, setDrafts] = useState<CrmEmailDraftItem[]>([])
   const [tasks, setTasks] = useState<CrmTaskItem[]>([])
   const [deals, setDeals] = useState<CrmDealItem[]>([])
+  const [responses, setResponses] = useState<CrmLeadResponseItem[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
@@ -773,6 +813,7 @@ function CRMLeadDetailsPage() {
   const [taskForm, setTaskForm] = useState<CreateTaskState | null>(null)
   const [dealForm, setDealForm] = useState<CreateDealState | null>(null)
   const [confirmCustomer, setConfirmCustomer] = useState<ConfirmCustomerState | null>(null)
+  const [responseForm, setResponseForm] = useState<ResponseFormState | null>(null)
 
   const permissions = useMemo(() => user?.permissions ?? [], [user])
   const can = useCallback((perm: string) => permissions.includes(perm), [permissions])
@@ -781,16 +822,18 @@ function CRMLeadDetailsPage() {
     setIsLoading(true)
     setLoadError(null)
     try {
-      const [leadData, draftsData, tasksData, dealsData] = await Promise.all([
+      const [leadData, draftsData, tasksData, dealsData, responsesData] = await Promise.all([
         getCrmLeadById(leadId),
         getLeadDrafts(leadId).catch(() => [] as CrmEmailDraftItem[]),
         listCrmTasks({ leadId }).catch(() => ({ count: 0, items: [] as CrmTaskItem[] })),
         listCrmDeals({ leadId }).catch(() => ({ count: 0, items: [] as CrmDealItem[] })),
+        getLeadResponses(leadId).catch(() => ({ count: 0, items: [] as CrmLeadResponseItem[] })),
       ])
       setLead(leadData)
       setDrafts(draftsData)
       setTasks(tasksData.items)
       setDeals(dealsData.items)
+      setResponses(responsesData.items)
     } catch (error) {
       setLoadError(getErrorMessage(error, 'Impossible de charger le lead.'))
     } finally {
@@ -818,6 +861,9 @@ function CRMLeadDetailsPage() {
     })
   }, [])
   const handleViewDraft = useCallback((draftId: string) => setViewingDraftId(draftId), [])
+  const openResponseForm = useCallback(() => {
+    setResponseForm({ response_type: 'interested', notes: '', next_action_date: '' })
+  }, [])
 
   const sortedDrafts = useMemo(
     () =>
@@ -943,6 +989,26 @@ function CRMLeadDetailsPage() {
     )
   }
 
+  const handleRecordResponse = () => {
+    if (!responseForm) return
+    const needsDate = responseTypeNeedsDate(responseForm.response_type)
+    void handleAsync(
+      'record_response',
+      async () => {
+        await recordLeadResponse(leadId, {
+          response_type: responseForm.response_type,
+          notes: responseForm.notes.trim() || null,
+          next_action_date:
+            needsDate && responseForm.next_action_date
+              ? new Date(responseForm.next_action_date).toISOString()
+              : null,
+        })
+        setResponseForm(null)
+      },
+      'Réponse client enregistrée.',
+    )
+  }
+
   const handleConfirmCustomer = () => {
     if (!confirmCustomer || !user) return
     void handleAsync(
@@ -995,7 +1061,10 @@ function CRMLeadDetailsPage() {
 
   const statusLabel = getCrmBusinessStateLabel(lead)
   const statusTone = getStatusTone(lead.customer_status || lead.status)
-  const scoreTone = getScoreTone(lead.score)
+  // Score ML prioritaire si disponible ; sinon repli sur le score LLM (inchangé).
+  const hasMl = lead.ml_score !== null && lead.ml_score !== undefined
+  const primaryScore = hasMl ? (lead.ml_score as number) : lead.score
+  const primaryScoreTone = getScoreTone(primaryScore)
   const activeDraft = getActiveDraft(lead, sortedDrafts)
   const latestSentDraft = getLatestSentDraft(sortedDrafts)
   const viewingDraft = viewingDraftId
@@ -1059,16 +1128,24 @@ function CRMLeadDetailsPage() {
 
       <section className="grid gap-4 md:grid-cols-3">
         <KpiCard
-          label="Score IA"
-          value={`${lead.score}/100`}
+          label={hasMl ? 'Score ML' : 'Score IA (LLM)'}
+          value={`${primaryScore}/100`}
           helper={
-            scoreTone === 'success'
-              ? 'Hot Lead'
-              : scoreTone === 'warning'
-                ? 'À qualifier'
-                : 'Lead froid'
+            hasMl
+              ? `${(lead.ml_category ?? '').toUpperCase()} · LLM ${lead.score}/100`
+              : primaryScoreTone === 'success'
+                ? 'Hot Lead'
+                : primaryScoreTone === 'warning'
+                  ? 'À qualifier'
+                  : 'Lead froid'
           }
-          tone={scoreTone === 'success' ? 'emerald' : scoreTone === 'warning' ? 'amber' : 'rose'}
+          tone={
+            primaryScoreTone === 'success'
+              ? 'emerald'
+              : primaryScoreTone === 'warning'
+                ? 'amber'
+                : 'rose'
+          }
           icon="spark"
         />
         <KpiCard
@@ -1086,6 +1163,8 @@ function CRMLeadDetailsPage() {
           icon="clock"
         />
       </section>
+
+      <MLScoreCard lead={lead} />
 
       <LeadNeedCard lead={lead} />
 
@@ -1129,6 +1208,17 @@ function CRMLeadDetailsPage() {
               fullWidth
               disabled={!can('crm.deals.manage')}
               onClick={openDealForm}
+            />
+            <ActionButton
+              label={
+                <span className="inline-flex items-center gap-2">
+                  <Icon name="mail" size={14} /> 📩 Enregistrer une réponse
+                </span>
+              }
+              variant="secondary"
+              fullWidth
+              disabled={!can('crm.interactions.create')}
+              onClick={openResponseForm}
             />
             <ActionButton
               label={
@@ -1337,6 +1427,64 @@ function CRMLeadDetailsPage() {
         )}
       </AppCard>
 
+      <AppCard
+        title="Réponses client"
+        eyebrow="Historique"
+        description="Réponses du prospect enregistrées manuellement par l'équipe commerciale."
+        actions={
+          <StatusBadge
+            label={`${responses.length}`}
+            status={responses.length === 0 ? 'neutral' : 'info'}
+          />
+        }
+      >
+        {responses.length === 0 ? (
+          <div className="px-5 py-4">
+            <EmptyState
+              title="Aucune réponse"
+              description="Aucune réponse client n'a encore été enregistrée pour ce lead."
+              icon="mail"
+            />
+          </div>
+        ) : (
+          <ul className="divide-y divide-slate-800">
+            {responses.map((response) => (
+              <li key={response.id} className="px-5 py-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <StatusBadge
+                        label={RESPONSE_TYPE_LABELS[response.response_type]}
+                        status={getResponseTypeTone(response.response_type)}
+                        size="sm"
+                      />
+                      <span className="text-xs text-slate-400">
+                        {formatCrmDate(response.recorded_at)}
+                      </span>
+                    </div>
+                    {response.notes ? (
+                      <p className="mt-2 whitespace-pre-wrap text-sm text-slate-200">
+                        {response.notes}
+                      </p>
+                    ) : null}
+                    {response.next_action_date ? (
+                      <p className="mt-1 text-xs text-slate-500">
+                        Prochaine action · {formatCrmDate(response.next_action_date)}
+                      </p>
+                    ) : null}
+                  </div>
+                  {response.recorded_by_name ? (
+                    <span className="shrink-0 text-[11px] text-slate-500">
+                      par {response.recorded_by_name}
+                    </span>
+                  ) : null}
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </AppCard>
+
       {viewingDraft ? (
         <Modal title="Aperçu du brouillon" onClose={() => setViewingDraftId(null)}>
           <div>
@@ -1528,6 +1676,64 @@ function CRMLeadDetailsPage() {
               variant="urgent"
               disabled={pendingAction === 'confirm_customer'}
               onClick={handleConfirmCustomer}
+            />
+          </div>
+        </Modal>
+      ) : null}
+
+      {responseForm ? (
+        <Modal title="📩 Enregistrer une réponse" onClose={() => setResponseForm(null)}>
+          <Field label="Type de réponse">
+            <select
+              value={responseForm.response_type}
+              onChange={(event) =>
+                setResponseForm({
+                  ...responseForm,
+                  response_type: event.target.value as CrmLeadResponseType,
+                })
+              }
+              className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white"
+            >
+              {RESPONSE_TYPE_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <Field label="Notes">
+            <textarea
+              value={responseForm.notes}
+              onChange={(event) =>
+                setResponseForm({ ...responseForm, notes: event.target.value })
+              }
+              rows={4}
+              placeholder="Détails de la réponse du prospect…"
+              className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white"
+            />
+          </Field>
+          {responseTypeNeedsDate(responseForm.response_type) ? (
+            <Field label="Date de prochaine action">
+              <input
+                type="datetime-local"
+                value={responseForm.next_action_date}
+                onChange={(event) =>
+                  setResponseForm({ ...responseForm, next_action_date: event.target.value })
+                }
+                className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white"
+              />
+              <p className="mt-1 text-[11px] text-slate-500">
+                Une tâche de relance sera créée automatiquement à cette échéance.
+              </p>
+            </Field>
+          ) : null}
+          <div className="flex justify-end gap-2 pt-2">
+            <ActionButton label="Annuler" variant="ghost" onClick={() => setResponseForm(null)} />
+            <ActionButton
+              label="Enregistrer"
+              variant="primary"
+              disabled={pendingAction === 'record_response'}
+              onClick={handleRecordResponse}
             />
           </div>
         </Modal>
@@ -1730,6 +1936,133 @@ function Modal({ title, onClose, children }: ModalProps) {
         <div className="space-y-4 px-5 py-4">{children}</div>
       </div>
     </div>
+  )
+}
+
+function mlCategoryStyle(category?: string | null): { label: string; badge: string; dot: string } {
+  switch (category) {
+    case 'hot':
+      return { label: 'HOT', badge: 'border-rose-500/30 bg-rose-500/15 text-rose-300', dot: '🔴' }
+    case 'warm':
+      return { label: 'WARM', badge: 'border-amber-500/30 bg-amber-500/15 text-amber-300', dot: '🟠' }
+    case 'cold':
+      return { label: 'COLD', badge: 'border-sky-500/30 bg-sky-500/15 text-sky-300', dot: '🔵' }
+    default:
+      return {
+        label: (category ?? '—').toUpperCase(),
+        badge: 'border-slate-600/60 bg-slate-700/40 text-slate-300',
+        dot: '⚪',
+      }
+  }
+}
+
+function MLScoreCard({ lead }: { lead: CrmLeadDetail }) {
+  const hasMl = lead.ml_score !== null && lead.ml_score !== undefined
+  if (!hasMl) {
+    return (
+      <AppCard eyebrow="Scoring Machine Learning" title="Score ML">
+        <div className="flex flex-col gap-2 px-1 sm:flex-row sm:items-center sm:gap-3">
+          <span className="inline-flex w-fit items-center rounded-md border border-amber-500/30 bg-amber-500/15 px-2.5 py-1 text-xs font-semibold text-amber-300">
+            En attente de scoring ML
+          </span>
+          <p className="text-sm text-slate-400">
+            Le modèle scorera ce lead automatiquement après l'analyse IA. Score LLM actuel : {lead.score}/100.
+          </p>
+        </div>
+      </AppCard>
+    )
+  }
+
+  const cat = mlCategoryStyle(lead.ml_category)
+  const mlScore = lead.ml_score as number
+  const confidence = Math.round((lead.ml_confidence ?? 0) * 100)
+  const probability = Math.round((lead.ml_probability ?? 0) * 100)
+  const factors = lead.shap_explanation?.top_factors ?? []
+  const explanation = lead.shap_explanation?.explanation_text
+
+  return (
+    <AppCard
+      eyebrow="Scoring Machine Learning"
+      title="Score ML"
+      description={`Modèle ${lead.shap_explanation?.model_version ?? 'v1.0'} · score calibré et explicable (SHAP)`}
+    >
+      <div className="grid gap-5 lg:grid-cols-[minmax(0,260px)_1fr]">
+        <div className="space-y-3">
+          <div className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
+            <div className="flex items-baseline gap-2">
+              <span className="text-4xl font-black text-white">{mlScore}</span>
+              <span className="text-slate-500">/100</span>
+              <span
+                className={`ml-auto inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-xs font-bold ${cat.badge}`}
+              >
+                {cat.dot} {cat.label}
+              </span>
+            </div>
+            <div className="mt-3 space-y-1 text-sm text-slate-400">
+              <p>
+                Confiance : <span className="font-semibold text-slate-200">{confidence}%</span>
+              </p>
+              <p>
+                Probabilité conversion :{' '}
+                <span className="font-semibold text-slate-200">{probability}%</span>
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div className="space-y-3">
+          <p className="flex items-center gap-2 text-sm font-semibold text-slate-200">
+            <Icon name="trending-up" size={15} className="text-emerald-400" /> Facteurs clés de la décision IA
+          </p>
+          {factors.length === 0 ? (
+            <p className="text-sm text-slate-500">Explication SHAP indisponible.</p>
+          ) : (
+            <div className="space-y-2.5">
+              {factors.map((f) => {
+                const positive = f.direction === 'positive'
+                return (
+                  <div
+                    key={f.feature}
+                    className="rounded-lg border border-slate-800 bg-slate-950/40 p-2.5"
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="truncate text-sm font-medium text-slate-100" title={f.label}>
+                        {f.label}
+                      </span>
+                      <span
+                        className={`inline-flex shrink-0 items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold ${
+                          positive
+                            ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300'
+                            : 'border-rose-500/40 bg-rose-500/10 text-rose-300'
+                        }`}
+                      >
+                        {positive ? '↑ Favorise la conversion' : '↓ Freine la conversion'}
+                      </span>
+                    </div>
+                    <div className="mt-2 flex items-center gap-2">
+                      <div className="h-2 flex-1 overflow-hidden rounded-full bg-slate-800">
+                        <div
+                          className={`h-full rounded-full ${positive ? 'bg-emerald-500' : 'bg-rose-500'}`}
+                          style={{ width: `${Math.max(4, Math.min(100, f.impact_pct))}%` }}
+                        />
+                      </div>
+                      <span className="w-9 shrink-0 text-right text-xs font-semibold text-slate-300">
+                        {Math.round(f.impact_pct)}%
+                      </span>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+          {explanation ? (
+            <p className="rounded-lg border border-slate-800 bg-slate-950/40 p-3 text-sm italic leading-6 text-slate-300">
+              « {explanation} »
+            </p>
+          ) : null}
+        </div>
+      </div>
+    </AppCard>
   )
 }
 

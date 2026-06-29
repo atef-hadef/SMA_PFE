@@ -1,7 +1,17 @@
 from datetime import datetime, timezone
 from decimal import Decimal
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, Numeric, String, Text
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    DateTime,
+    Float,
+    ForeignKey,
+    Integer,
+    Numeric,
+    String,
+    Text,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base
@@ -27,6 +37,14 @@ class CrmLead(Base):
         nullable=True,
     )
     lead_score: Mapped[int] = mapped_column(Integer, default=0)
+    # --- Scoring Machine Learning (module Data Science) ---
+    # Calculés par MLScoringService ; null tant que le modèle n'a pas scoré le lead.
+    # Le score LLM (lead_score) reste stocké en parallèle comme référence.
+    ml_score: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    ml_probability: Mapped[float | None] = mapped_column(Float, nullable=True)
+    ml_category: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    ml_confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
+    shap_explanation: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     sentiment: Mapped[str | None] = mapped_column(String(80), nullable=True)
     urgency: Mapped[str | None] = mapped_column(String(80), nullable=True)
     intention: Mapped[str | None] = mapped_column(String(120), nullable=True)

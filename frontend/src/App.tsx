@@ -8,6 +8,7 @@ import RequirePermission from './components/auth/RequirePermission'
 import MainLayout from './layouts/MainLayout'
 import { ThemeProvider } from './theme/ThemeContext'
 import AccessDeniedPage from './pages/AccessDeniedPage'
+import ActivityFeedPage from './pages/ActivityFeedPage'
 import AdminUsersPage from './pages/AdminUsersPage'
 import AIAgentCenterPage from './pages/AIAgentCenterPage'
 import AssistantPage from './pages/AssistantPage'
@@ -16,6 +17,8 @@ import CRMLeadDetailsPage from './pages/CRMLeadDetailsPage'
 import CRMLeadsPage from './pages/CRMLeadsPage'
 import CRMTasksPage from './pages/CRMTasksPage'
 import DashboardPage from './pages/DashboardPage'
+import DataSciencePage from './pages/DataSciencePage'
+import LeaveAllocationPage from './pages/LeaveAllocationPage'
 import LeaveRequestPage from './pages/LeaveRequestPage'
 import LoginPage from './pages/LoginPage'
 import ManagerApprovalPage from './pages/ManagerApprovalPage'
@@ -85,6 +88,14 @@ function App() {
             }
           />
           <Route
+            path="/leave-allocations"
+            element={
+              <ProtectedPage permissions={ROUTE_PERMISSIONS['/leave-allocations']}>
+                <LeaveAllocationPage />
+              </ProtectedPage>
+            }
+          />
+          <Route
             path="/crm-leads"
             element={
               <ProtectedPage permissions={ROUTE_PERMISSIONS['/crm-leads']}>
@@ -113,6 +124,22 @@ function App() {
             element={
               <ProtectedPage permissions={ROUTE_PERMISSIONS['/crm-deals']}>
                 <CRMDealsPage />
+              </ProtectedPage>
+            }
+          />
+          <Route
+            path="/data-science"
+            element={
+              <ProtectedPage permissions={ROUTE_PERMISSIONS['/data-science']}>
+                <DataSciencePage />
+              </ProtectedPage>
+            }
+          />
+          <Route
+            path="/activities"
+            element={
+              <ProtectedPage permissions={ROUTE_PERMISSIONS['/activities']}>
+                <ActivityFeedPage />
               </ProtectedPage>
             }
           />

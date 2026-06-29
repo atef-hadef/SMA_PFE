@@ -12,6 +12,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
+from app.core.permissions import crm_scoped_owner_id
 from app.models import (
     CrmEmailAttachment,
     CrmEmailDraft,
@@ -54,6 +55,17 @@ from app.schemas.crm import (
 )
 
 DEFAULT_CRM_OWNER_ID = "user_030"
+SALES_ROLE_ID = "role_sales"
+# Statuts de cycle de vie qui ne comptent plus comme charge active pour le
+# round-robin (lead clôturé ou client converti). Comparaison en minuscules.
+INACTIVE_WORKLOAD_STATUSES = {
+    "converted",
+    "customer",
+    "vip_customer",
+    "lost",
+    "archived",
+    "unqualified",
+}
 COMMUNICATION_DRAFT_WEBHOOK_PATH = "flowpilot-crm-communication-draft"
 CUSTOMER_CONVERSION_WEBHOOK_PATH = "flowpilot-crm-customer-converted"
 APPROVED_EMAIL_SEND_WEBHOOK_PATH = "flowpilot-crm-send-approved-email-real"
@@ -182,10 +194,61 @@ def utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def _ensure_crm_lead_access(lead: CrmLead, current_user) -> None:
+    """403 si un commercial (role_sales) ouvre un lead qui ne lui est pas assigné."""
+    scoped_owner_id = crm_scoped_owner_id(current_user)
+    if scoped_owner_id is not None and lead.assigned_to != scoped_owner_id:
+        raise HTTPException(
+            status_code=403,
+            detail="Accès refusé : ce lead n'est pas assigné à votre compte.",
+        )
+
+
+def _assign_lead_round_robin(db: Session) -> str | None:
+    """Round-robin pondéré par charge : renvoie l'id du commercial actif
+    (role_sales) ayant le moins de leads actifs.
+
+    - Candidats : role_id == 'role_sales' ET status == 'active'
+      (HR / AI Supervisor et tout autre rôle sont exclus).
+    - Charge = nb de leads dont customer_status NOT IN INACTIVE_WORKLOAD_STATUSES.
+    - Égalité : plus petit id (rotation stable).
+    - None si aucun commercial actif n'existe.
+    """
+    sales_users = list(
+        db.scalars(
+            select(User)
+            .where(User.role_id == SALES_ROLE_ID)
+            .where(User.status == "active")
+            .order_by(User.id.asc())
+        ).all()
+    )
+    if not sales_users:
+        return None
+
+    sales_ids = [user.id for user in sales_users]
+    workload_rows = db.execute(
+        select(CrmLead.assigned_to, func.count())
+        .where(CrmLead.assigned_to.in_(sales_ids))
+        .where(
+            func.lower(func.coalesce(CrmLead.customer_status, "")).notin_(
+                INACTIVE_WORKLOAD_STATUSES
+            )
+        )
+        .group_by(CrmLead.assigned_to)
+    ).all()
+    workload = {owner_id: count for owner_id, count in workload_rows}
+
+    # sales_users est déjà trié par id croissant : min() renvoie donc le plus
+    # petit id parmi les ex-aequo de charge minimale.
+    chosen = min(sales_users, key=lambda user: workload.get(user.id, 0))
+    return chosen.id
+
+
 def get_crm_leads(
     db: Session,
     page: int = 1,
     page_size: int = 20,
+    current_user=None,
 ) -> PaginatedResponse[CrmLeadListItem]:
     # Clamp before SQL so a hostile or buggy caller can't bypass the limit
     # and try to fetch the whole table again.
@@ -193,14 +256,18 @@ def get_crm_leads(
     page_size = max(1, min(page_size, 100))
     offset = (page - 1) * page_size
 
+    # Isolation par rôle : un commercial (role_sales) ne voit que les leads qui
+    # lui sont assignés ; admin/manager (et appels internes) voient tout.
+    scoped_owner_id = crm_scoped_owner_id(current_user)
+
     try:
-        total_items = db.scalar(select(func.count()).select_from(CrmLead)) or 0
-        statement = (
-            select(CrmLead)
-            .order_by(CrmLead.created_at.desc())
-            .offset(offset)
-            .limit(page_size)
-        )
+        count_statement = select(func.count()).select_from(CrmLead)
+        statement = select(CrmLead).order_by(CrmLead.created_at.desc())
+        if scoped_owner_id is not None:
+            count_statement = count_statement.where(CrmLead.assigned_to == scoped_owner_id)
+            statement = statement.where(CrmLead.assigned_to == scoped_owner_id)
+        total_items = db.scalar(count_statement) or 0
+        statement = statement.offset(offset).limit(page_size)
         leads = list(db.scalars(statement).all())
         lead_ids = [lead.id for lead in leads]
         drafts_by_lead = _email_drafts_by_lead_id(db, lead_ids)
@@ -236,11 +303,17 @@ def get_crm_leads(
     )
 
 
-def get_crm_lead_by_id(lead_id: str, db: Session) -> CrmLeadDetail | None:
+def get_crm_lead_by_id(
+    lead_id: str,
+    db: Session,
+    current_user=None,
+) -> CrmLeadDetail | None:
     try:
         lead = db.get(CrmLead, lead_id)
         if lead is None:
             return None
+
+        _ensure_crm_lead_access(lead, current_user)
 
         interaction_statement = (
             select(CrmInteraction)
@@ -259,11 +332,17 @@ def get_crm_lead_by_id(lead_id: str, db: Session) -> CrmLeadDetail | None:
         ) from exc
 
 
-def get_lead_email_drafts(db: Session, lead_id: str) -> list[CrmEmailDraftItem]:
+def get_lead_email_drafts(
+    db: Session,
+    lead_id: str,
+    current_user=None,
+) -> list[CrmEmailDraftItem]:
     try:
         lead = db.get(CrmLead, lead_id)
         if lead is None:
             raise HTTPException(status_code=404, detail="CRM lead not found.")
+
+        _ensure_crm_lead_access(lead, current_user)
 
         drafts = list(
             db.scalars(
@@ -293,6 +372,7 @@ def create_crm_lead(
     db: Session,
 ) -> CrmLeadCreatedResponse:
     now = utc_now()
+    assigned_owner = _assign_lead_round_robin(db) or DEFAULT_CRM_OWNER_ID
     lead = CrmLead(
         id=f"lead_{uuid4().hex[:8]}",
         full_name=payload.name,
@@ -307,8 +387,8 @@ def create_crm_lead(
         message=payload.message,
         ai_summary="Lead captured and awaiting AI analysis.",
         recommended_action="Review lead details and assign next follow-up.",
-        owner_user_id=DEFAULT_CRM_OWNER_ID,
-        assigned_to=DEFAULT_CRM_OWNER_ID,
+        owner_user_id=assigned_owner,
+        assigned_to=assigned_owner,
         created_at=now,
         updated_at=now,
     )
@@ -1770,6 +1850,11 @@ def _to_crm_lead_detail(
         created_at=lead.created_at,
         last_contact_at=lead.last_contact_at,
         notes=lead.notes,
+        ml_score=lead.ml_score,
+        ml_probability=lead.ml_probability,
+        ml_category=lead.ml_category,
+        ml_confidence=lead.ml_confidence,
+        shap_explanation=lead.shap_explanation,
         drafts=[
             draft
             for interaction in interactions

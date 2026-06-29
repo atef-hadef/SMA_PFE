@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
-  ActionButton,
   AppCard,
   EmptyState,
   ErrorState,
@@ -9,14 +8,13 @@ import {
   PageHeader,
   PriorityBadge,
   StatusBadge,
-  TechnicalDetailsPanel,
 } from '../components/common'
 import { pendingTeamRequests, selectedRequest } from '../data/managerApprovalData'
 import {
-  approveLeaveRequest,
+  approveStandalone,
   getLeaveRequestsHistory,
   getPendingLeaveRequests,
-  rejectLeaveRequest,
+  rejectStandalone,
   type LeaveRequestHistoryRecord,
   type PendingLeaveRequestRecord,
 } from '../services/leaveService'
@@ -204,6 +202,13 @@ function getOdooSyncTone(status: string | null | undefined): BadgeTone {
   return 'slate'
 }
 
+function verdictClasses(tone: BadgeTone): string {
+  if (tone === 'green') return 'border-emerald-500/40 bg-emerald-500/10 text-emerald-100'
+  if (tone === 'red') return 'border-rose-500/40 bg-rose-500/10 text-rose-100'
+  if (tone === 'orange') return 'border-amber-500/40 bg-amber-500/10 text-amber-100'
+  return 'border-slate-700 bg-slate-900/60 text-slate-100'
+}
+
 // ── Component ────────────────────────────────────────────────────────────────
 
 function ManagerApprovalPage() {
@@ -284,17 +289,15 @@ function ManagerApprovalPage() {
       return
     }
 
-    if (!activeCard?.id || isUsingFallback) {
+    if (decision === 'reject' && !managerComment.trim()) {
       setDecisionMessage('')
-      setDecisionError('La décision ne peut pas être envoyée sans connexion au backend.')
+      setDecisionError('Un commentaire est obligatoire pour refuser une demande.')
       return
     }
 
-    if (!activeCard.canSyncWithOdoo) {
+    if (!activeCard?.id || isUsingFallback) {
       setDecisionMessage('')
-      setDecisionError(
-        "Cette demande n’a pas été créée dans Odoo. Elle ne peut pas être synchronisée avec le SIRH. Demandez à l’employé de modifier sa demande.",
-      )
+      setDecisionError('La décision ne peut pas être envoyée sans connexion au backend.')
       return
     }
 
@@ -304,21 +307,18 @@ function ManagerApprovalPage() {
 
     try {
       if (decision === 'approve') {
-        await approveLeaveRequest(
+        await approveStandalone(
           activeCard.id,
           managerComment.trim() || 'Demande approuvée depuis FlowPilot.',
         )
       } else {
-        await rejectLeaveRequest(
-          activeCard.id,
-          managerComment.trim() || 'Demande refusée depuis FlowPilot.',
-        )
+        await rejectStandalone(activeCard.id, managerComment.trim())
       }
 
       setDecisionMessage(
         decision === 'approve'
-          ? 'Demande approuvée et synchronisée avec le SIRH.'
-          : 'Demande refusée et synchronisée avec le SIRH.',
+          ? 'Demande approuvée. Le collaborateur va être notifié par email.'
+          : 'Demande refusée. Le collaborateur va être notifié par email.',
       )
       // Refresh both sections after a decision
       await Promise.allSettled([loadPendingRequests(), loadHistory()])
@@ -336,7 +336,7 @@ function ManagerApprovalPage() {
       <PageHeader
         eyebrow="Ressources humaines"
         title="Validations manager"
-        subtitle="Inbox de décisions assisté par l'IA. Consultez la recommandation, le niveau de risque et validez la demande."
+        subtitle="Validez ou refusez les demandes de congé de votre équipe."
         statusLabel={`${summary.pending} décision${summary.pending === 1 ? '' : 's'} en attente`}
         statusTone={summary.pending > 0 ? 'warning' : 'success'}
       />
@@ -352,11 +352,7 @@ function ManagerApprovalPage() {
 
       {/* ── Demandes à valider ─────────────────────────────────────────────── */}
       <div className="grid gap-5 lg:grid-cols-[380px_minmax(0,1fr)]">
-        <AppCard
-          eyebrow="Inbox"
-          title="Demandes à traiter"
-          description="Sélectionnez une demande pour afficher le détail."
-        >
+        <AppCard eyebrow="Inbox" title="Demandes à traiter">
           {cards.length === 0 ? (
             <EmptyState
               icon="check"
@@ -404,175 +400,96 @@ function ManagerApprovalPage() {
           {activeCard ? (
             <>
               <AppCard
-                eyebrow="Détail de la demande"
+                eyebrow="Demande"
                 title={activeCard.employee}
-                description={activeCard.department}
-                actions={
-                  <PriorityBadge label={activeCard.status} tone={activeCard.statusTone} />
-                }
+                description={`${activeCard.department} · ${activeCard.leaveType}`}
+                actions={<PriorityBadge label={activeCard.status} tone={activeCard.statusTone} />}
               >
-                <dl className="grid gap-3 sm:grid-cols-2">
+                <dl className="grid gap-3 sm:grid-cols-3">
                   <div className="rounded-lg border border-slate-800 bg-slate-950/50 p-3">
-                    <dt className="text-[11px] uppercase tracking-[0.14em] text-slate-500">
-                      Type de congé
-                    </dt>
-                    <dd className="mt-1 font-semibold text-white">{activeCard.leaveType}</dd>
-                  </div>
-                  <div className="rounded-lg border border-slate-800 bg-slate-950/50 p-3">
-                    <dt className="text-[11px] uppercase tracking-[0.14em] text-slate-500">
-                      Période
-                    </dt>
+                    <dt className="text-[11px] uppercase tracking-[0.14em] text-slate-500">Période</dt>
                     <dd className="mt-1 font-semibold text-white">{activeCard.period}</dd>
                   </div>
                   <div className="rounded-lg border border-slate-800 bg-slate-950/50 p-3">
-                    <dt className="text-[11px] uppercase tracking-[0.14em] text-slate-500">
-                      Nombre de jours
-                    </dt>
-                    <dd className="mt-1 font-semibold text-white">{activeCard.days} jours</dd>
+                    <dt className="text-[11px] uppercase tracking-[0.14em] text-slate-500">Jours</dt>
+                    <dd className="mt-1 font-semibold text-white">{formatDays(activeCard.requestedDays)}</dd>
                   </div>
                   <div className="rounded-lg border border-slate-800 bg-slate-950/50 p-3">
-                    <dt className="text-[11px] uppercase tracking-[0.14em] text-slate-500">
-                      Département
-                    </dt>
-                    <dd className="mt-1 font-semibold text-white">{activeCard.department}</dd>
+                    <dt className="text-[11px] uppercase tracking-[0.14em] text-slate-500">Solde dispo</dt>
+                    <dd className="mt-1 font-semibold text-white">{formatDays(activeCard.availableDays)}</dd>
                   </div>
-                  <div className="rounded-lg border border-slate-800 bg-slate-950/50 p-3 sm:col-span-2">
-                    <dt className="text-[11px] uppercase tracking-[0.14em] text-slate-500">
-                      Motif
-                    </dt>
+                  <div className="rounded-lg border border-slate-800 bg-slate-950/50 p-3 sm:col-span-3">
+                    <dt className="text-[11px] uppercase tracking-[0.14em] text-slate-500">Motif</dt>
                     <dd className="mt-1 text-sm leading-6 text-slate-200">{activeCard.reason}</dd>
                   </div>
                 </dl>
               </AppCard>
 
-              <AppCard
-                eyebrow="Analyse IA"
-                title="Recommandation automatique"
-                description="Calculée à partir de la politique interne, du solde et des conflits d'équipe."
-              >
-                <div className="grid gap-3 sm:grid-cols-3">
-                  <div className="rounded-lg border border-slate-800 bg-slate-950/50 p-3">
-                    <p className="text-[11px] uppercase tracking-[0.14em] text-slate-500">
-                      Recommandation
-                    </p>
-                    <p className="mt-2 text-sm font-semibold text-white">
-                      {activeCard.recommendation}
-                    </p>
-                    <PriorityBadge label="IA" tone={activeCard.recommendationTone} size="sm" />
+              <AppCard eyebrow="Analyse IA" title="Verdict & aide à la décision">
+                <div className={`rounded-xl border p-4 ${verdictClasses(activeCard.recommendationTone)}`}>
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.14em] opacity-80">
+                        Verdict IA
+                      </p>
+                      <p className="mt-1 text-lg font-bold">{activeCard.recommendation}</p>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <PriorityBadge label={`Risque : ${activeCard.risk}`} tone={activeCard.riskTone} size="sm" />
+                      <PriorityBadge
+                        label={activeCard.conflict ? 'Conflit équipe' : 'Pas de conflit'}
+                        tone={activeCard.conflict ? 'red' : 'green'}
+                        size="sm"
+                      />
+                    </div>
                   </div>
-                  <div className="rounded-lg border border-slate-800 bg-slate-950/50 p-3">
-                    <p className="text-[11px] uppercase tracking-[0.14em] text-slate-500">Risque</p>
-                    <p className="mt-2 text-sm font-semibold text-white">{activeCard.risk}</p>
-                    <PriorityBadge label="Niveau" tone={activeCard.riskTone} size="sm" />
-                  </div>
-                  <div className="rounded-lg border border-slate-800 bg-slate-950/50 p-3">
-                    <p className="text-[11px] uppercase tracking-[0.14em] text-slate-500">
-                      Conflit détecté
-                    </p>
-                    <p className="mt-2 text-sm font-semibold text-white">
-                      {activeCard.conflict ? 'Oui' : 'Non'}
-                    </p>
-                    <PriorityBadge
-                      label={activeCard.conflict ? 'Attention' : 'Sain'}
-                      tone={activeCard.conflict ? 'red' : 'green'}
-                      size="sm"
-                    />
-                  </div>
+                  {activeCard.aiExplanation ? (
+                    <p className="mt-3 text-sm leading-6">{activeCard.aiExplanation}</p>
+                  ) : null}
                 </div>
-              </AppCard>
 
-              <AppCard
-                eyebrow="Aide à la décision"
-                title="Justification IA"
-                description="La recommandation informe le manager ; la décision finale reste managériale."
-                actions={<PriorityBadge label="Décision finale : manager" tone="blue" size="sm" />}
-              >
-                <div className="grid gap-3 sm:grid-cols-3">
+                <div className="mt-4 grid gap-3 sm:grid-cols-3">
                   <div className="rounded-lg border border-slate-800 bg-slate-950/50 p-3">
-                    <p className="text-[11px] uppercase tracking-[0.14em] text-slate-500">
-                      Solde disponible
-                    </p>
-                    <p className="mt-2 text-sm font-semibold text-white">
-                      {formatDays(activeCard.availableDays)}
-                    </p>
+                    <p className="text-[11px] uppercase tracking-[0.14em] text-slate-500">Solde disponible</p>
+                    <p className="mt-1 text-sm font-semibold text-white">{formatDays(activeCard.availableDays)}</p>
                   </div>
                   <div className="rounded-lg border border-slate-800 bg-slate-950/50 p-3">
-                    <p className="text-[11px] uppercase tracking-[0.14em] text-slate-500">
-                      Jours demandés
-                    </p>
-                    <p className="mt-2 text-sm font-semibold text-white">
-                      {formatDays(activeCard.requestedDays)}
-                    </p>
+                    <p className="text-[11px] uppercase tracking-[0.14em] text-slate-500">Jours demandés</p>
+                    <p className="mt-1 text-sm font-semibold text-white">{formatDays(activeCard.requestedDays)}</p>
                   </div>
                   <div className="rounded-lg border border-slate-800 bg-slate-950/50 p-3">
-                    <p className="text-[11px] uppercase tracking-[0.14em] text-slate-500">
-                      Écart de solde
-                    </p>
-                    <p className="mt-2 text-sm font-semibold text-white">
-                      {formatDays(activeCard.balanceGapDays)}
-                    </p>
+                    <p className="text-[11px] uppercase tracking-[0.14em] text-slate-500">Écart de solde</p>
+                    <p className="mt-1 text-sm font-semibold text-white">{formatDays(activeCard.balanceGapDays)}</p>
                   </div>
                 </div>
 
-                <div className="mt-4 rounded-lg border border-slate-800 bg-slate-950/50 p-4">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <PriorityBadge
-                      label={`Recommandation IA : ${activeCard.recommendation}`}
-                      tone={activeCard.recommendationTone}
-                      size="sm"
-                    />
-                    <PriorityBadge
-                      label={`Niveau de risque : ${activeCard.risk}`}
-                      tone={activeCard.riskTone}
-                      size="sm"
-                    />
-                    {activeCard.canManagerOverride ? (
-                      <PriorityBadge label="Exception possible avec validation RH" tone="orange" size="sm" />
-                    ) : null}
+                {activeCard.decisionReasons.length > 0 ? (
+                  <div className="mt-4">
+                    <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">Raisons principales</p>
+                    <ul className="mt-2 space-y-1 text-sm text-slate-300">
+                      {activeCard.decisionReasons.map((reason) => (
+                        <li key={reason} className="flex gap-2">
+                          <span className="mt-2 h-1.5 w-1.5 rounded-full bg-emerald-400" />
+                          <span>{reason}</span>
+                        </li>
+                      ))}
+                    </ul>
                   </div>
+                ) : null}
 
-                  <p className="mt-3 text-sm leading-6 text-slate-200">
-                    {activeCard.aiExplanation || 'Aucune justification complémentaire fournie par l’analyse.'}
-                  </p>
+                {activeCard.blockingReasons.length > 0 ? (
+                  <div className="mt-4 rounded-lg border border-rose-500/30 bg-rose-500/10 p-3">
+                    <p className="text-xs font-semibold uppercase tracking-[0.14em] text-rose-200">Points bloquants</p>
+                    <p className="mt-2 text-sm text-rose-100">{activeCard.blockingReasons.join(' ')}</p>
+                  </div>
+                ) : null}
 
-                  {activeCard.decisionReasons.length > 0 ? (
-                    <div className="mt-4">
-                      <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">
-                        Raisons principales
-                      </p>
-                      <ul className="mt-2 space-y-1 text-sm text-slate-300">
-                        {activeCard.decisionReasons.map((reason) => (
-                          <li key={reason} className="flex gap-2">
-                            <span className="mt-2 h-1.5 w-1.5 rounded-full bg-emerald-400" />
-                            <span>{reason}</span>
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  ) : null}
-
-                  {activeCard.blockingReasons.length > 0 ? (
-                    <div className="mt-4 rounded-lg border border-rose-500/30 bg-rose-500/10 p-3">
-                      <p className="text-xs font-semibold uppercase tracking-[0.14em] text-rose-200">
-                        Points bloquants
-                      </p>
-                      <p className="mt-2 text-sm text-rose-100">
-                        {activeCard.blockingReasons.join(' ')}
-                      </p>
-                    </div>
-                  ) : null}
-
-                  {activeCard.managerGuidance ? (
-                    <div className="mt-4 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3">
-                      <p className="text-xs font-semibold uppercase tracking-[0.14em] text-amber-200">
-                        Conseil au manager
-                      </p>
-                      <p className="mt-2 text-sm leading-6 text-amber-100">
-                        {activeCard.managerGuidance}
-                      </p>
-                    </div>
-                  ) : null}
-                </div>
+                {activeCard.managerGuidance ? (
+                  <div className="mt-4 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3">
+                    <p className="text-xs font-semibold uppercase tracking-[0.14em] text-amber-200">Conseil au manager</p>
+                    <p className="mt-2 text-sm leading-6 text-amber-100">{activeCard.managerGuidance}</p>
+                  </div>
+                ) : null}
               </AppCard>
 
               <AppCard
@@ -580,52 +497,42 @@ function ManagerApprovalPage() {
                 title="Valider ou refuser"
                 description="Ajoutez un commentaire interne avant de transmettre la décision au SIRH."
               >
-                {activeCard.canSyncWithOdoo ? (
-                  <>
                 <label className="block">
                   <span className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">
-                    Commentaire
+                    Commentaire <span className="text-slate-500">(obligatoire pour refuser)</span>
                   </span>
                   <textarea
                     rows={3}
                     value={managerComment}
                     onChange={(event) => setManagerComment(event.target.value)}
-                    placeholder="Motivez votre décision pour l'équipe RH et le collaborateur..."
+                    placeholder="Motivez votre décision…"
                     className="mt-2 w-full rounded-lg border border-slate-800 bg-slate-950/80 px-3 py-2.5 text-sm text-slate-100 outline-none transition placeholder:text-slate-500 focus:border-emerald-500/50 focus:ring-2 focus:ring-emerald-500/20"
                   />
                 </label>
 
-                <div className="mt-4 flex flex-wrap gap-3">
-                  <ActionButton
-                    label={
-                      <span className="inline-flex items-center gap-1.5">
-                        <Icon name="check" size={14} />
-                        {isDeciding ? 'Traitement...' : 'Approuver la demande'}
-                      </span>
-                    }
+                <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                  <button
+                    type="button"
                     onClick={() => void handleDecision('approve')}
                     disabled={isDeciding || isUsingFallback || !activeCard || !canApproveLeave}
-                  />
-                  <ActionButton
-                    label={
-                      <span className="inline-flex items-center gap-1.5">
-                        <Icon name="close" size={14} />
-                        Refuser la demande
-                      </span>
-                    }
-                    variant="danger"
+                    className="inline-flex items-center justify-center gap-2 rounded-lg bg-emerald-500 px-4 py-3 text-sm font-semibold text-slate-950 shadow-md shadow-emerald-500/20 transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:bg-slate-700 disabled:text-slate-400"
+                  >
+                    <Icon name="check" size={16} />
+                    {isDeciding ? 'Traitement…' : 'Approuver'}
+                  </button>
+                  <button
+                    type="button"
                     onClick={() => void handleDecision('reject')}
-                    disabled={isDeciding || isUsingFallback || !activeCard || !canRejectLeave}
-                  />
+                    disabled={isDeciding || isUsingFallback || !activeCard || !canRejectLeave || !managerComment.trim()}
+                    className="inline-flex items-center justify-center gap-2 rounded-lg bg-rose-600 px-4 py-3 text-sm font-semibold text-white shadow-md shadow-rose-600/20 transition hover:bg-rose-500 disabled:cursor-not-allowed disabled:bg-slate-700 disabled:text-slate-400"
+                  >
+                    <Icon name="close" size={16} />
+                    Refuser
+                  </button>
                 </div>
-
-                  </>
-                ) : (
-                  <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-4 text-sm leading-6 text-amber-100">
-                    Cette demande n’a pas été créée dans Odoo. Elle ne peut pas être synchronisée
-                    avec le SIRH. Demandez à l’employé de modifier sa demande.
-                  </div>
-                )}
+                {canRejectLeave && !managerComment.trim() ? (
+                  <p className="mt-2 text-[11px] text-slate-500">Un commentaire est requis pour refuser.</p>
+                ) : null}
 
                 {decisionMessage ? (
                   <div className="mt-4 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-sm font-medium text-emerald-200">
@@ -638,29 +545,6 @@ function ManagerApprovalPage() {
                   </div>
                 ) : null}
               </AppCard>
-
-              <TechnicalDetailsPanel title="Traçabilité">
-                <dl className="grid gap-2 sm:grid-cols-2">
-                  <div>
-                    <dt className="text-[11px] uppercase tracking-[0.14em] text-slate-500">
-                      Recommandation IA
-                    </dt>
-                    <dd className="text-sm text-slate-300">{activeCard.recommendation}</dd>
-                  </div>
-                  <div>
-                    <dt className="text-[11px] uppercase tracking-[0.14em] text-slate-500">
-                      Risque calculé
-                    </dt>
-                    <dd className="text-sm text-slate-300">{activeCard.risk}</dd>
-                  </div>
-                  <div>
-                    <dt className="text-[11px] uppercase tracking-[0.14em] text-slate-500">
-                      Statut
-                    </dt>
-                    <dd className="text-sm text-slate-300">{activeCard.status}</dd>
-                  </div>
-                </dl>
-              </TechnicalDetailsPanel>
             </>
           ) : (
             <EmptyState

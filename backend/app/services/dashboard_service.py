@@ -5,6 +5,7 @@ from sqlalchemy import and_, func, or_, select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
+from app.core.permissions import crm_scoped_owner_id
 from app.models import AgentRun, CrmEmailDraft, CrmInteraction, CrmLead, LeaveRequest, WorkflowExecution
 from app.schemas.dashboard import DashboardBusinessActivity, DashboardSummary
 from app.services.leave_service import (
@@ -22,8 +23,14 @@ FALLBACK_AUTOMATION_FAILED = 1
 FALLBACK_AUTOMATION_PENDING = 0
 
 
-def get_dashboard_summary(db: Session) -> DashboardSummary:
-    crm_leads = _safe_count(db, _count_crm_leads, FALLBACK_CRM_LEADS)
+def get_dashboard_summary(db: Session, current_user=None) -> DashboardSummary:
+    # Isolation par rôle : un commercial (role_sales) ne voit que SES stats CRM
+    # (leads/prospects/clients/brouillons + activité de ses leads). Admin/manager
+    # gardent la vue globale. Les compteurs non-CRM (congés, automatisations,
+    # agents) restent globaux.
+    owner_id = crm_scoped_owner_id(current_user)
+
+    crm_leads = _safe_count(db, lambda d: _count_crm_leads(d, owner_id), FALLBACK_CRM_LEADS)
     leave_requests = _safe_count(db, _count_leave_requests, FALLBACK_LEAVE_REQUESTS)
     pending_approvals = _safe_count(
         db,
@@ -42,12 +49,12 @@ def get_dashboard_summary(db: Session) -> DashboardSummary:
         pending_approvals=pending_approvals,
         crm_leads=crm_leads,
         active_agents=active_agents,
-        hot_leads=_safe_count(db, _count_hot_leads, 0),
-        prospects=_safe_count(db, _count_prospects, 0),
-        customers=_safe_count(db, _count_customers, 0),
+        hot_leads=_safe_count(db, lambda d: _count_hot_leads(d, owner_id), 0),
+        prospects=_safe_count(db, lambda d: _count_prospects(d, owner_id), 0),
+        customers=_safe_count(db, lambda d: _count_customers(d, owner_id), 0),
         drafts_to_review=_safe_count(
             db,
-            _count_drafts_to_review,
+            lambda d: _count_drafts_to_review(d, owner_id),
             FALLBACK_DRAFTS_TO_REVIEW,
         ),
         automation_successful=_safe_count(
@@ -62,7 +69,7 @@ def get_dashboard_summary(db: Session) -> DashboardSummary:
             _count_pending_automation,
             FALLBACK_AUTOMATION_PENDING,
         ),
-        recent_business_activity=_safe_recent_business_activity(db),
+        recent_business_activity=_safe_recent_business_activity(db, owner_id),
     )
 
 
@@ -78,30 +85,43 @@ def _safe_count(
         return fallback
 
 
-def _safe_recent_business_activity(db: Session) -> list[DashboardBusinessActivity]:
+def _safe_recent_business_activity(
+    db: Session,
+    owner_id: str | None = None,
+) -> list[DashboardBusinessActivity]:
     try:
         _ensure_leave_request_integration_columns(db)
         crm_statement = (
             select(CrmInteraction, CrmLead)
             .join(CrmLead, CrmInteraction.lead_id == CrmLead.id)
-            .order_by(CrmInteraction.interaction_date.desc())
-            .limit(5)
         )
+        if owner_id is not None:
+            crm_statement = crm_statement.where(CrmLead.assigned_to == owner_id)
+        crm_statement = crm_statement.order_by(
+            CrmInteraction.interaction_date.desc()
+        ).limit(5)
         crm_rows = db.execute(crm_statement).all()
 
-        leave_statement = (
-            select(LeaveRequest)
-            .order_by(LeaveRequest.updated_at.desc())
-            .limit(5)
-        )
-        leave_rows = db.scalars(leave_statement).all()
+        # L'activité congés / automatisations est transverse (niveau plateforme) :
+        # on ne l'affiche qu'aux rôles à visibilité complète (admin/manager).
+        # Un commercial ne voit que l'activité de ses propres leads.
+        if owner_id is None:
+            leave_statement = (
+                select(LeaveRequest)
+                .order_by(LeaveRequest.updated_at.desc())
+                .limit(5)
+            )
+            leave_rows = db.scalars(leave_statement).all()
 
-        workflow_statement = (
-            select(WorkflowExecution)
-            .order_by(WorkflowExecution.updated_at.desc())
-            .limit(5)
-        )
-        workflow_rows = db.scalars(workflow_statement).all()
+            workflow_statement = (
+                select(WorkflowExecution)
+                .order_by(WorkflowExecution.updated_at.desc())
+                .limit(5)
+            )
+            workflow_rows = db.scalars(workflow_statement).all()
+        else:
+            leave_rows = []
+            workflow_rows = []
     except SQLAlchemyError:
         db.rollback()
         return []
@@ -140,8 +160,11 @@ def _safe_recent_business_activity(db: Session) -> list[DashboardBusinessActivit
     ]
 
 
-def _count_crm_leads(db: Session) -> int:
-    return _scalar_count(db, select(func.count()).select_from(CrmLead))
+def _count_crm_leads(db: Session, owner_id: str | None = None) -> int:
+    statement = select(func.count()).select_from(CrmLead)
+    if owner_id is not None:
+        statement = statement.where(CrmLead.assigned_to == owner_id)
+    return _scalar_count(db, statement)
 
 
 def _count_leave_requests(db: Session) -> int:
@@ -170,7 +193,7 @@ def _count_active_agents(db: Session) -> int:
     return _scalar_count(db, known_agents_statement)
 
 
-def _count_hot_leads(db: Session) -> int:
+def _count_hot_leads(db: Session, owner_id: str | None = None) -> int:
     statement = select(func.count()).select_from(CrmLead).where(
         or_(
             func.lower(CrmLead.priority) == "high",
@@ -178,25 +201,36 @@ def _count_hot_leads(db: Session) -> int:
             CrmLead.lead_score >= 80,
         ),
     )
+    if owner_id is not None:
+        statement = statement.where(CrmLead.assigned_to == owner_id)
     return _scalar_count(db, statement)
 
 
-def _count_prospects(db: Session) -> int:
+def _count_prospects(db: Session, owner_id: str | None = None) -> int:
     statement = select(func.count()).select_from(CrmLead).where(
         func.lower(CrmLead.customer_status) == "prospect",
     )
+    if owner_id is not None:
+        statement = statement.where(CrmLead.assigned_to == owner_id)
     return _scalar_count(db, statement)
 
 
-def _count_customers(db: Session) -> int:
+def _count_customers(db: Session, owner_id: str | None = None) -> int:
     statement = select(func.count()).select_from(CrmLead).where(
         func.lower(CrmLead.customer_status) == "customer",
     )
+    if owner_id is not None:
+        statement = statement.where(CrmLead.assigned_to == owner_id)
     return _scalar_count(db, statement)
 
 
-def _count_drafts_to_review(db: Session) -> int:
-    statement = select(func.count()).select_from(CrmEmailDraft).where(
+def _count_drafts_to_review(db: Session, owner_id: str | None = None) -> int:
+    statement = select(func.count()).select_from(CrmEmailDraft)
+    if owner_id is not None:
+        statement = statement.join(
+            CrmLead, CrmEmailDraft.lead_id == CrmLead.id
+        ).where(CrmLead.assigned_to == owner_id)
+    statement = statement.where(
         func.lower(CrmEmailDraft.status).in_(["draft_generated", "edited", "reviewed"]),
     )
     return _scalar_count(db, statement)
