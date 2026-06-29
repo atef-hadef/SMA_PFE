@@ -151,6 +151,132 @@ function rejectLeaveRequest(requestId: string, comment: string) {
   })
 }
 
+// --- Module Congés STANDALONE (sans Odoo) ---
+
+type LeaveBalanceItem = {
+  leave_type: string
+  leave_type_label: string
+  allocated: number
+  used: number
+  pending: number
+  available: number
+  year: number
+}
+
+type LeaveTypeOption = {
+  id: string
+  code: string
+  label_fr: string
+  label_en?: string | null
+  default_days: number
+  requires_document: boolean
+}
+
+type LeaveAllocationDetail = {
+  leave_type: string
+  leave_type_label: string
+  allocated_days: number
+  used_days: number
+  available_days: number
+}
+
+type LeaveAllocationGroup = {
+  employee_id: string
+  employee_name: string
+  year: number
+  allocations: LeaveAllocationDetail[]
+}
+
+type LeaveAllocationUpsertPayload = {
+  employee_id: string
+  year: number
+  leave_type: string
+  allocated_days: number
+}
+
+type LeaveAllocationUpsertResponse = {
+  id: string
+  employee_id: string
+  year: number
+  leave_type: string
+  allocated_days: number
+}
+
+type LeaveAnalyticsEmployee = {
+  employee_id: string
+  employee_name: string
+  total_requests: number
+  approved_days: number
+  remaining_vacation: number
+  burnout_risk: string
+}
+
+type LeaveBurnoutAlert = {
+  employee_id: string
+  employee_name: string
+  risk_level: string
+  days_since_last_leave: number | null
+  signals: string[]
+}
+
+type LeavePendingOver48h = {
+  request_id: string
+  employee_name: string
+  submitted_at: string
+  hours_pending: number
+}
+
+type LeaveAnalyticsResponse = {
+  total_this_year: number
+  approved: number
+  rejected: number
+  pending: number
+  by_type: Record<string, { count: number; days: number }>
+  by_employee: LeaveAnalyticsEmployee[]
+  burnout_alerts: LeaveBurnoutAlert[]
+  pending_over_48h: LeavePendingOver48h[]
+}
+
+function getMyBalance() {
+  return get<LeaveBalanceItem[]>('/leave-requests/my-balance')
+}
+
+function getLeaveTypes() {
+  return get<LeaveTypeOption[]>('/leave-requests/leave-types')
+}
+
+function createStandaloneRequest(payload: LeaveRequestCreatePayload) {
+  return post<LeaveRequestCreatedResponse>('/leave-requests/standalone', payload)
+}
+
+function approveStandalone(requestId: string, comment: string) {
+  return post<LeaveRequestCreatedResponse>(
+    `/leave-requests/${requestId}/approve-standalone`,
+    { comment },
+  )
+}
+
+function rejectStandalone(requestId: string, comment: string) {
+  return post<LeaveRequestCreatedResponse>(
+    `/leave-requests/${requestId}/reject-standalone`,
+    { comment },
+  )
+}
+
+function getAllocations(year = 2026, employeeId?: string) {
+  const params = new URLSearchParams({ year: String(year) })
+  if (employeeId) params.set('employee_id', employeeId)
+  return get<LeaveAllocationGroup[]>(`/leave-requests/allocations?${params.toString()}`)
+}
+
+function upsertAllocation(payload: LeaveAllocationUpsertPayload) {
+  return post<LeaveAllocationUpsertResponse>('/leave-requests/allocations', payload)
+}
+
+function getAnalytics() {
+  return get<LeaveAnalyticsResponse>('/leave-requests/analytics')
+}
+
 export type {
   LeaveRequestCreatedResponse,
   LeaveBalancePrecheckResponse,
@@ -160,6 +286,16 @@ export type {
   LeaveRequestRecord,
   PaginatedResponse,
   PendingLeaveRequestRecord,
+  LeaveBalanceItem,
+  LeaveTypeOption,
+  LeaveAllocationDetail,
+  LeaveAllocationGroup,
+  LeaveAllocationUpsertPayload,
+  LeaveAllocationUpsertResponse,
+  LeaveAnalyticsEmployee,
+  LeaveBurnoutAlert,
+  LeavePendingOver48h,
+  LeaveAnalyticsResponse,
 }
 export {
   approveLeaveRequest,
@@ -168,4 +304,12 @@ export {
   getMyLeaveRequests,
   getPendingLeaveRequests,
   rejectLeaveRequest,
+  getMyBalance,
+  getLeaveTypes,
+  createStandaloneRequest,
+  approveStandalone,
+  rejectStandalone,
+  getAllocations,
+  upsertAllocation,
+  getAnalytics,
 }

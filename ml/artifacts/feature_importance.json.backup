@@ -1,0 +1,380 @@
+[
+  {
+    "feature": "intention_purchase_ready",
+    "label": "Intention IA : purchase ready",
+    "importance": 0.0961,
+    "rank": 1
+  },
+  {
+    "feature": "intention_information_gathering",
+    "label": "Intention IA : information gathering",
+    "importance": 0.0946,
+    "rank": 2
+  },
+  {
+    "feature": "ai_sentiment_positive",
+    "label": "Sentiment IA : positive",
+    "importance": 0.0857,
+    "rank": 3
+  },
+  {
+    "feature": "ai_urgency_low",
+    "label": "Urgence IA : low",
+    "importance": 0.0771,
+    "rank": 4
+  },
+  {
+    "feature": "ai_sentiment_negative",
+    "label": "Sentiment IA : negative",
+    "importance": 0.072,
+    "rank": 5
+  },
+  {
+    "feature": "ai_urgency_high",
+    "label": "Urgence IA : high",
+    "importance": 0.0502,
+    "rank": 6
+  },
+  {
+    "feature": "uppercase_ratio",
+    "label": "Uppercase ratio",
+    "importance": 0.0485,
+    "rank": 7
+  },
+  {
+    "feature": "source_referral",
+    "label": "Source : referral",
+    "importance": 0.0395,
+    "rank": 8
+  },
+  {
+    "feature": "char_count",
+    "label": "Char count",
+    "importance": 0.0289,
+    "rank": 9
+  },
+  {
+    "feature": "avg_word_length",
+    "label": "Avg word length",
+    "importance": 0.0284,
+    "rank": 10
+  },
+  {
+    "feature": "interaction_count",
+    "label": "Interactions précédentes",
+    "importance": 0.0245,
+    "rank": 11
+  },
+  {
+    "feature": "word_count",
+    "label": "Longueur du message",
+    "importance": 0.0242,
+    "rank": 12
+  },
+  {
+    "feature": "sentiment_polarity",
+    "label": "Ton du message",
+    "importance": 0.0237,
+    "rank": 13
+  },
+  {
+    "feature": "product_AI_CRM_Automation",
+    "label": "Produit : AI CRM Automation",
+    "importance": 0.0237,
+    "rank": 14
+  },
+  {
+    "feature": "source_cold_call",
+    "label": "Source : cold call",
+    "importance": 0.0227,
+    "rank": 15
+  },
+  {
+    "feature": "source_email",
+    "label": "Source : email",
+    "importance": 0.0207,
+    "rank": 16
+  },
+  {
+    "feature": "source_event",
+    "label": "Source : event",
+    "importance": 0.0191,
+    "rank": 17
+  },
+  {
+    "feature": "product_Automation_Consulting",
+    "label": "Produit : Automation Consulting",
+    "importance": 0.0182,
+    "rank": 18
+  },
+  {
+    "feature": "source_partner",
+    "label": "Source : partner",
+    "importance": 0.0178,
+    "rank": 19
+  },
+  {
+    "feature": "budget_score",
+    "label": "Budget mentionné",
+    "importance": 0.0166,
+    "rank": 20
+  },
+  {
+    "feature": "sentiment_subjectivity",
+    "label": "Sentiment subjectivity",
+    "importance": 0.0165,
+    "rank": 21
+  },
+  {
+    "feature": "question_count",
+    "label": "Questions posées",
+    "importance": 0.014,
+    "rank": 22
+  },
+  {
+    "feature": "sentiment_neutral",
+    "label": "Sentiment neutral",
+    "importance": 0.0136,
+    "rank": 23
+  },
+  {
+    "feature": "source_social_media",
+    "label": "Source : social media",
+    "importance": 0.0129,
+    "rank": 24
+  },
+  {
+    "feature": "sentiment_positive",
+    "label": "Sentiment positif",
+    "importance": 0.0116,
+    "rank": 25
+  },
+  {
+    "feature": "city_Sousse__Tunisia",
+    "label": "Ville : Sousse  Tunisia",
+    "importance": 0.0093,
+    "rank": 26
+  },
+  {
+    "feature": "city_Ariana__Tunisia",
+    "label": "Ville : Ariana  Tunisia",
+    "importance": 0.0091,
+    "rank": 27
+  },
+  {
+    "feature": "is_morning",
+    "label": "Soumis le matin",
+    "importance": 0.0086,
+    "rank": 28
+  },
+  {
+    "feature": "ai_urgency_medium",
+    "label": "Urgence IA : medium",
+    "importance": 0.008,
+    "rank": 29
+  },
+  {
+    "feature": "estimated_value",
+    "label": "Valeur estimée",
+    "importance": 0.0078,
+    "rank": 30
+  },
+  {
+    "feature": "day_of_week",
+    "label": "Day of week",
+    "importance": 0.0078,
+    "rank": 31
+  },
+  {
+    "feature": "city_Monastir__Tunisia",
+    "label": "Ville : Monastir  Tunisia",
+    "importance": 0.0064,
+    "rank": 32
+  },
+  {
+    "feature": "source_organic_search",
+    "label": "Source : organic search",
+    "importance": 0.0059,
+    "rank": 33
+  },
+  {
+    "feature": "is_weekend",
+    "label": "Is weekend",
+    "importance": 0.0051,
+    "rank": 34
+  },
+  {
+    "feature": "language_en",
+    "label": "Langue : en",
+    "importance": 0.0036,
+    "rank": 35
+  },
+  {
+    "feature": "city_Tunis__Tunisia",
+    "label": "Ville : Tunis  Tunisia",
+    "importance": 0.0035,
+    "rank": 36
+  },
+  {
+    "feature": "hour_submitted",
+    "label": "Hour submitted",
+    "importance": 0.0032,
+    "rank": 37
+  },
+  {
+    "feature": "intention_evaluation",
+    "label": "Intention IA : evaluation",
+    "importance": 0.0029,
+    "rank": 38
+  },
+  {
+    "feature": "city_Gabes__Tunisia",
+    "label": "Ville : Gabes  Tunisia",
+    "importance": 0.0027,
+    "rank": 39
+  },
+  {
+    "feature": "ai_sentiment_neutral",
+    "label": "Sentiment IA : neutral",
+    "importance": 0.0026,
+    "rank": 40
+  },
+  {
+    "feature": "city_Sfax__Tunisia",
+    "label": "Ville : Sfax  Tunisia",
+    "importance": 0.0022,
+    "rank": 41
+  },
+  {
+    "feature": "is_afternoon",
+    "label": "Is afternoon",
+    "importance": 0.0021,
+    "rank": 42
+  },
+  {
+    "feature": "purchase_ready_score",
+    "label": "Intention d'achat",
+    "importance": 0.0017,
+    "rank": 43
+  },
+  {
+    "feature": "city_Nabeul__Tunisia",
+    "label": "Ville : Nabeul  Tunisia",
+    "importance": 0.0017,
+    "rank": 44
+  },
+  {
+    "feature": "city_Bizerte__Tunisia",
+    "label": "Ville : Bizerte  Tunisia",
+    "importance": 0.0014,
+    "rank": 45
+  },
+  {
+    "feature": "month",
+    "label": "Month",
+    "importance": 0.0009,
+    "rank": 46
+  },
+  {
+    "feature": "urgency_score",
+    "label": "Urgence détectée",
+    "importance": 0.0008,
+    "rank": 47
+  },
+  {
+    "feature": "source_web",
+    "label": "Source : web",
+    "importance": 0.0008,
+    "rank": 48
+  },
+  {
+    "feature": "is_business_hours",
+    "label": "Horaires professionnels",
+    "importance": 0.0007,
+    "rank": 49
+  },
+  {
+    "feature": "language_fr",
+    "label": "Langue : fr",
+    "importance": 0.0003,
+    "rank": 50
+  },
+  {
+    "feature": "product_CRM_Workflow_Automation",
+    "label": "Produit : CRM Workflow Automation",
+    "importance": 0.0,
+    "rank": 51
+  },
+  {
+    "feature": "phone_is_tunisian",
+    "label": "Numéro tunisien",
+    "importance": 0.0,
+    "rank": 52
+  },
+  {
+    "feature": "sentiment_negative",
+    "label": "Sentiment negative",
+    "importance": 0.0,
+    "rank": 53
+  },
+  {
+    "feature": "has_company",
+    "label": "Entreprise fournie",
+    "importance": 0.0,
+    "rank": 54
+  },
+  {
+    "feature": "email_is_professional",
+    "label": "Email professionnel",
+    "importance": 0.0,
+    "rank": 55
+  },
+  {
+    "feature": "competitor_mentioned",
+    "label": "Concurrent mentionné",
+    "importance": 0.0,
+    "rank": 56
+  },
+  {
+    "feature": "has_phone",
+    "label": "Téléphone fourni",
+    "importance": 0.0,
+    "rank": 57
+  },
+  {
+    "feature": "problem_awareness_score",
+    "label": "Conscience du problème",
+    "importance": 0.0,
+    "rank": 58
+  },
+  {
+    "feature": "decision_score",
+    "label": "Mots de décision",
+    "importance": 0.0,
+    "rank": 59
+  },
+  {
+    "feature": "has_numbers",
+    "label": "Has numbers",
+    "importance": 0.0,
+    "rank": 60
+  },
+  {
+    "feature": "paragraph_count",
+    "label": "Paragraph count",
+    "importance": 0.0,
+    "rank": 61
+  },
+  {
+    "feature": "exclamation_count",
+    "label": "Exclamation count",
+    "importance": 0.0,
+    "rank": 62
+  },
+  {
+    "feature": "sentence_count",
+    "label": "Nombre de phrases",
+    "importance": 0.0,
+    "rank": 63
+  }
+]

@@ -119,6 +119,7 @@ function CRMTasksPage() {
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
+  const [actionInfo, setActionInfo] = useState<string | null>(null)
   const [pendingKey, setPendingKey] = useState<string | null>(null)
 
   const [isCreating, setIsCreating] = useState(false)
@@ -215,6 +216,7 @@ function CRMTasksPage() {
     event.preventDefault()
     if (!canManage) return
     setActionError(null)
+    setActionInfo(null)
     if (!form.title.trim() || !form.due_date || !form.owner_user_id) {
       setActionError('Titre, échéance et propriétaire sont requis.')
       return
@@ -232,6 +234,7 @@ function CRMTasksPage() {
       setIsCreating(false)
       setForm(emptyForm(user?.id))
       await refresh()
+      setActionInfo('Tâche créée avec succès.')
     } catch (e) {
       setActionError(getErrorMessage(e, 'Création impossible.'))
     } finally {
@@ -243,6 +246,7 @@ function CRMTasksPage() {
     event.preventDefault()
     if (!editingTask || !canManage) return
     setActionError(null)
+    setActionInfo(null)
     setPendingKey(`edit_${editingTask.id}`)
     try {
       await updateCrmTask(editingTask.id, {
@@ -254,6 +258,7 @@ function CRMTasksPage() {
       })
       setEditingTask(null)
       await refresh()
+      setActionInfo('Tâche mise à jour — échéance enregistrée.')
     } catch (e) {
       setActionError(getErrorMessage(e, 'Mise à jour impossible.'))
     } finally {
@@ -264,10 +269,12 @@ function CRMTasksPage() {
   async function handleStatusChange(task: CrmTaskItem, status: CrmTaskStatus) {
     if (!canManage) return
     setActionError(null)
+    setActionInfo(null)
     setPendingKey(`status_${task.id}`)
     try {
       await updateCrmTask(task.id, { status })
       await refresh()
+      setActionInfo('Statut de la tâche mis à jour.')
     } catch (e) {
       setActionError(getErrorMessage(e, 'Changement de statut impossible.'))
     } finally {
@@ -375,6 +382,12 @@ function CRMTasksPage() {
         />
       ) : null}
 
+      {actionInfo ? (
+        <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm font-medium text-emerald-100">
+          {actionInfo}
+        </div>
+      ) : null}
+
       {isCreating ? (
         <AppCard title="Créer une tâche" eyebrow="Nouvelle entrée">
           <form onSubmit={handleCreate} className="grid grid-cols-1 gap-4 px-5 py-4 lg:grid-cols-2">
@@ -448,6 +461,7 @@ function CRMTasksPage() {
               <ActionButton
                 label="Créer la tâche"
                 variant="primary"
+                type="submit"
                 disabled={pendingKey === 'create'}
               />
             </div>
@@ -710,6 +724,7 @@ function CRMTasksPage() {
               <ActionButton
                 label="Enregistrer"
                 variant="primary"
+                type="submit"
                 disabled={pendingKey === `edit_${editingTask.id}`}
               />
             </div>

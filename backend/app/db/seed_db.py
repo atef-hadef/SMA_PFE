@@ -11,6 +11,7 @@ from app.models import (
     CrmInteraction,
     CrmLead,
     CrmTask,
+    LeaveAllocation,
     LeaveRequest,
     Role,
     RolePermission,
@@ -21,49 +22,58 @@ from app.services.leave_service import _ensure_leave_request_integration_columns
 
 
 ROLES = ROLE_DEFINITIONS
-DEV_TEST_PASSWORD = "FlowPilot@123"
+DEV_TEST_PASSWORD = "TacTic2026!"
 
 USERS = [
     {
         "id": "user_001",
-        "full_name": "FlowPilot Admin",
-        "email": "admin@flowpilot.ai",
+        "full_name": "Admin",
+        "email": "admin@tac-tic.tn",
         "role_id": "role_admin",
         "status": "active",
-        "job_title": "System Administrator",
-        "department": "IT",
+        "job_title": "Directeur Général",
+        "department": "Direction",
+    },
+    {
+        "id": "user_002",
+        "full_name": "Manager Commercial",
+        "email": "hadefatef1@gmail.com",
+        "role_id": "role_manager",
+        "status": "active",
+        "job_title": "Manager Commercial",
+        "department": "Commercial",
     },
     {
         "id": "user_010",
-        "full_name": "FlowPilot Employee",
-        "email": "employee@flowpilot.ai",
-        "role_id": "role_employee",
+        "full_name": "Commercial 1",
+        "email": "benhadefatef@gmail.com",
+        "role_id": "role_sales",
         "status": "active",
-        "job_title": "Employee",
-        "department": "Operations",
+        "job_title": "Conseiller Commercial",
+        "department": "Commercial",
     },
     {
         "id": "user_020",
-        "full_name": "FlowPilot Manager",
-        "email": "manager@flowpilot.ai",
-        "role_id": "role_manager",
+        "full_name": "Commercial 2",
+        "email": "commercial2@tac-tic.tn",
+        "role_id": "role_sales",
         "status": "active",
-        "job_title": "Operations Manager",
-        "department": "Operations",
+        "job_title": "Conseillère Commerciale",
+        "department": "Commercial",
     },
     {
         "id": "user_030",
-        "full_name": "Atef Ben Hadef",
-        "email": "atef.benhadef@flowpilot.ai",
+        "full_name": "Commercial 3",
+        "email": "commercial3@tac-tic.tn",
         "role_id": "role_sales",
         "status": "active",
-        "job_title": "Sales Representative",
-        "department": "Sales",
+        "job_title": "Conseiller Commercial",
+        "department": "Commercial",
     },
     {
         "id": "user_040",
-        "full_name": "FlowPilot HR",
-        "email": "hr@flowpilot.ai",
+        "full_name": "HR",
+        "email": "hr@tac-tic.tn",
         "role_id": "role_hr",
         "status": "active",
         "job_title": "HR Officer",
@@ -71,14 +81,33 @@ USERS = [
     },
     {
         "id": "user_050",
-        "full_name": "FlowPilot AI Supervisor",
-        "email": "ai.supervisor@flowpilot.ai",
+        "full_name": "AI Supervisor",
+        "email": "ai.supervisor@tac-tic.tn",
         "role_id": "role_ai_supervisor",
         "status": "active",
         "job_title": "AI Supervisor",
         "department": "Automation",
     },
 ]
+
+# Module Congés STANDALONE — allocations annuelles par employé.
+EMPLOYEES_TO_SEED = [
+    "user_010",  # Commercial 1
+    "user_020",  # Commercial 2
+    "user_030",  # Commercial 3
+    "user_040",  # FlowPilot HR
+    "user_050",  # AI Supervisor
+]
+
+DEFAULT_LEAVE_ALLOCATIONS = {
+    "vacation": 25,
+    "sick": 15,
+    "personal": 5,
+    "rtt": 10,
+}
+
+ALLOCATION_YEAR = 2026
+ALLOCATION_CREATED_BY = "user_001"
 
 LEAVE_REQUESTS = [
     {
@@ -131,8 +160,8 @@ CRM_LEADS = [
         "customer_category": "VIP",
         "location": "Tunis, Tunisia",
         "is_active": True,
-        "owner_user_id": "user_030",
-        "assigned_to": "user_030",
+        "owner_user_id": "user_010",
+        "assigned_to": "user_010",
         "notes": "Supervisor-aligned CRM sample for a high-value automation prospect.",
     },
     {
@@ -159,8 +188,8 @@ CRM_LEADS = [
         "customer_category": "standard",
         "location": "Sfax, Tunisia",
         "is_active": True,
-        "owner_user_id": "user_030",
-        "assigned_to": "user_030",
+        "owner_user_id": "user_020",
+        "assigned_to": "user_020",
         "notes": "Needs comparison material before a formal discovery call.",
     },
     {
@@ -201,7 +230,7 @@ CRM_INTERACTIONS = [
         "channel": "email",
         "summary": "Prospect requested information about sales automation.",
         "interaction_date": datetime(2026, 4, 27, 11, 15, tzinfo=timezone.utc),
-        "created_by": "user_030",
+        "created_by": "user_010",
     },
     {
         "id": "interaction_002",
@@ -210,7 +239,7 @@ CRM_INTERACTIONS = [
         "channel": "n8n",
         "summary": "Lead analyzed as positive sentiment, high urgency, purchase-ready.",
         "interaction_date": datetime(2026, 4, 27, 11, 20, tzinfo=timezone.utc),
-        "created_by": "user_030",
+        "created_by": "user_010",
     },
     {
         "id": "interaction_003",
@@ -221,7 +250,7 @@ CRM_INTERACTIONS = [
             "Product comparison should be sent before scheduling a discovery call."
         ),
         "interaction_date": datetime(2026, 4, 27, 9, 0, tzinfo=timezone.utc),
-        "created_by": "user_030",
+        "created_by": "user_020",
     },
 ]
 
@@ -377,11 +406,32 @@ def seed_users(db: Session) -> None:
             user.status = user_data["status"]
             user.job_title = user_data["job_title"]
             user.department = user_data["department"]
-            if not user.password_hash:
-                user.password_hash = hash_password(DEV_TEST_PASSWORD)
+            # Force the rehash so existing databases pick up the TacTic2026!
+            # test password (the previous "only if missing" guard kept the old
+            # FlowPilot@123 hash on already-seeded rows).
+            user.password_hash = hash_password(DEV_TEST_PASSWORD)
             continue
 
         db.add(User(**user_data, password_hash=hash_password(DEV_TEST_PASSWORD)))
+
+
+def seed_leave_allocations(db: Session) -> None:
+    for employee_id in EMPLOYEES_TO_SEED:
+        for leave_type, allocated_days in DEFAULT_LEAVE_ALLOCATIONS.items():
+            allocation_id = f"alloc_{employee_id}_{leave_type}_{ALLOCATION_YEAR}"
+            if db.get(LeaveAllocation, allocation_id):
+                continue
+
+            db.add(
+                LeaveAllocation(
+                    id=allocation_id,
+                    employee_id=employee_id,
+                    year=ALLOCATION_YEAR,
+                    leave_type=leave_type,
+                    allocated_days=allocated_days,
+                    created_by=ALLOCATION_CREATED_BY,
+                )
+            )
 
 
 def seed_leave_requests(db: Session) -> None:
@@ -418,13 +468,13 @@ CRM_TASKS = [
     {
         "id": "task_001",
         "lead_id": "lead_002",
-        "owner_user_id": "user_030",
+        "owner_user_id": "user_020",
         "title": "Envoyer la comparaison produit à Atlas Retail",
         "description": "Préparer un PDF comparatif avant la prochaine réunion.",
         "due_date": datetime(2026, 5, 22, 9, 0, tzinfo=timezone.utc),
         "status": "pending",
         "priority": "high",
-        "created_by": "user_030",
+        "created_by": "user_020",
     },
     {
         "id": "task_002",
@@ -440,13 +490,13 @@ CRM_TASKS = [
     {
         "id": "task_003",
         "lead_id": "lead_001",
-        "owner_user_id": "user_020",
+        "owner_user_id": "user_010",
         "title": "Préparer la proposition commerciale pour Northwind",
         "description": "Demande validée — préparer offre cadrée pour la semaine.",
         "due_date": datetime(2026, 5, 21, 12, 0, tzinfo=timezone.utc),
         "status": "pending",
         "priority": "high",
-        "created_by": "user_020",
+        "created_by": "user_010",
     },
 ]
 
@@ -455,7 +505,7 @@ CRM_DEALS = [
     {
         "id": "deal_001",
         "lead_id": "lead_001",
-        "owner_user_id": "user_030",
+        "owner_user_id": "user_010",
         "title": "Northwind Logistics — AI CRM Automation",
         "stage": "negotiation",
         "previous_stage": "proposal",
@@ -468,7 +518,7 @@ CRM_DEALS = [
     {
         "id": "deal_002",
         "lead_id": "lead_002",
-        "owner_user_id": "user_030",
+        "owner_user_id": "user_020",
         "title": "Atlas Retail — CRM Workflow Automation",
         "stage": "discovery",
         "previous_stage": None,
@@ -520,6 +570,7 @@ def seed_database() -> None:
         seed_role_permissions(db)
         seed_users(db)
         db.flush()
+        seed_leave_allocations(db)
         seed_leave_requests(db)
         seed_crm_leads(db)
         db.flush()

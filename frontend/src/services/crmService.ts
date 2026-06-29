@@ -127,6 +127,42 @@ type CrmLeadInteractionInput = {
   created_by: string
 }
 
+type CrmLeadResponseType =
+  | 'interested'
+  | 'not_interested'
+  | 'needs_more_info'
+  | 'callback_requested'
+  | 'no_response'
+
+type CrmLeadResponseItem = {
+  id: string
+  lead_id: string
+  response_type: CrmLeadResponseType
+  notes?: string | null
+  next_action?: string | null
+  next_action_date?: string | null
+  recorded_by?: string | null
+  recorded_by_name?: string | null
+  recorded_at: string
+}
+
+type CrmLeadResponseInput = {
+  response_type: CrmLeadResponseType
+  notes?: string | null
+  next_action?: string | null
+  next_action_date?: string | null
+}
+
+type CrmLeadResponseListResponse = { count: number; items: CrmLeadResponseItem[] }
+
+type CrmLeadResponseCreatedResponse = {
+  response: CrmLeadResponseItem
+  lead_status?: string | null
+  lead_customer_status?: string | null
+  created_task_id?: string | null
+  message: string
+}
+
 type CrmLeadDraftItem = {
   draft_type: 'sales' | 'welcome'
   subject?: string | null
@@ -189,6 +225,23 @@ type CrmEmailDraftUpdateInput = {
   edited_by?: string
 }
 
+type ShapFactor = {
+  feature: string
+  label: string
+  shap_value: number
+  direction: 'positive' | 'negative' | string
+  impact_pct: number
+  description: string
+}
+
+type ShapExplanation = {
+  explanation_text?: string
+  top_factors?: ShapFactor[]
+  model_version?: string
+  delta?: number | null
+  scored_at?: string
+}
+
 type CrmLeadDetail = CrmLeadRecord & {
   phone: string
   intention: string
@@ -196,6 +249,13 @@ type CrmLeadDetail = CrmLeadRecord & {
   ai_summary: string
   recommended_action: string
   notes?: string | null
+  // Scoring ML (module Data Science). Null tant que le modèle n'a pas scoré le
+  // lead -> l'UI retombe sur le score LLM (score) inchangé.
+  ml_score?: number | null
+  ml_probability?: number | null
+  ml_category?: 'hot' | 'warm' | 'cold' | null
+  ml_confidence?: number | null
+  shap_explanation?: ShapExplanation | null
   drafts?: CrmLeadDraftItem[]
   interaction_history?: CrmInteractionHistoryItem[]
 }
@@ -310,6 +370,14 @@ function getLeadDrafts(leadId: string) {
   return get<CrmEmailDraftItem[]>(`/crm/leads/${leadId}/drafts`)
 }
 
+function recordLeadResponse(leadId: string, input: CrmLeadResponseInput) {
+  return post<CrmLeadResponseCreatedResponse>(`/crm/leads/${leadId}/responses`, input)
+}
+
+function getLeadResponses(leadId: string) {
+  return get<CrmLeadResponseListResponse>(`/crm/leads/${leadId}/responses`)
+}
+
 function updateEmailDraft(draftId: string, payload: CrmEmailDraftUpdateInput) {
   return patch<CrmEmailDraftItem>(`/crm/email-drafts/${draftId}`, payload)
 }
@@ -359,12 +427,19 @@ export type {
   CrmLeadDetail,
   CrmLeadInput,
   CrmLeadDraftItem,
+  CrmLeadResponseType,
+  CrmLeadResponseItem,
+  CrmLeadResponseInput,
+  CrmLeadResponseListResponse,
+  CrmLeadResponseCreatedResponse,
   CrmDisplayState,
   CrmInteractionHistoryItem,
   CrmLeadRecord,
   LeadAnalysisInput,
   LeadScoringInput,
   PaginatedResponse,
+  ShapFactor,
+  ShapExplanation,
 }
 export {
   analyzeCrmLead,
@@ -373,6 +448,8 @@ export {
   createCrmLead,
   generateCommunicationDraft,
   getLeadDrafts,
+  recordLeadResponse,
+  getLeadResponses,
   getCrmLeadById,
   getCrmLeads,
   approveEmailDraft,

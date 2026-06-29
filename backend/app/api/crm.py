@@ -38,7 +38,14 @@ from app.schemas.crm import (
     PublicCrmLeadIntake,
     PublicCrmLeadIntakeResponse,
 )
+from app.schemas.crm_responses import (
+    CrmLeadResponseCreate,
+    CrmLeadResponseCreatedResponse,
+    CrmLeadResponseListResponse,
+)
 from app.services import webhook_outbox_service
+from app.services.audit_service import log_activity
+from app.services.crm_responses_service import list_responses, record_response
 from app.services.crm_service import (
     convert_lead_to_customer,
     approve_email_draft,
@@ -70,11 +77,11 @@ def read_crm_leads(
     page: int = 1,
     page_size: int = 20,
     db: Session = Depends(get_db),
-    _user=Depends(require_permission("crm.leads.view")),
+    current_user: AuthUser = Depends(require_permission("crm.leads.view")),
 ) -> ApiResponse[PaginatedResponse[CrmLeadListItem]]:
     return ApiResponse(
         success=True,
-        data=get_crm_leads(db, page=page, page_size=page_size),
+        data=get_crm_leads(db, page=page, page_size=page_size, current_user=current_user),
     )
 
 
@@ -82,9 +89,9 @@ def read_crm_leads(
 def read_crm_lead(
     lead_id: str,
     db: Session = Depends(get_db),
-    _user=Depends(require_permission("crm.leads.view")),
+    current_user: AuthUser = Depends(require_permission("crm.leads.view")),
 ) -> ApiResponse[CrmLeadDetail]:
-    lead = get_crm_lead_by_id(lead_id, db)
+    lead = get_crm_lead_by_id(lead_id, db, current_user=current_user)
 
     if lead is None:
         raise HTTPException(status_code=404, detail="CRM lead not found.")
@@ -99,18 +106,30 @@ def read_crm_lead(
 def read_crm_lead_email_drafts(
     lead_id: str,
     db: Session = Depends(get_db),
-    _user=Depends(require_permission("crm.leads.view")),
+    current_user: AuthUser = Depends(require_permission("crm.leads.view")),
 ) -> ApiResponse[list[CrmEmailDraftItem]]:
-    return ApiResponse(success=True, data=get_lead_email_drafts(db, lead_id))
+    return ApiResponse(
+        success=True,
+        data=get_lead_email_drafts(db, lead_id, current_user=current_user),
+    )
 
 
 @router.post("/crm/leads", response_model=ApiResponse[CrmLeadCreatedResponse])
 def submit_crm_lead(
     payload: CrmLeadCreate,
     db: Session = Depends(get_db),
-    _user=Depends(require_permission("crm.leads.create")),
+    current_user: AuthUser = Depends(require_permission("crm.leads.create")),
 ) -> ApiResponse[CrmLeadCreatedResponse]:
-    return ApiResponse(success=True, data=create_crm_lead(payload, db))
+    created = create_crm_lead(payload, db)
+    log_activity(
+        db,
+        entity_type="lead",
+        entity_id=created.id,
+        action="created",
+        actor_id=current_user.id,
+        details={"company": created.company, "name": created.name},
+    )
+    return ApiResponse(success=True, data=created)
 
 
 @router.post(
@@ -166,6 +185,40 @@ def log_crm_lead_interaction(
     )
 
 
+@router.post(
+    "/crm/leads/{lead_id}/responses",
+    response_model=ApiResponse[CrmLeadResponseCreatedResponse],
+)
+def record_crm_lead_response(
+    lead_id: str,
+    payload: CrmLeadResponseCreate,
+    db: Session = Depends(get_db),
+    current_user: AuthUser = Depends(require_permission("crm.interactions.create")),
+) -> ApiResponse[CrmLeadResponseCreatedResponse]:
+    result = record_response(db, lead_id, payload, recorded_by=current_user.id)
+    log_activity(
+        db,
+        entity_type="response",
+        entity_id=result.response.id,
+        action="recorded",
+        actor_id=current_user.id,
+        details={"lead_id": lead_id, "response_type": result.response.response_type},
+    )
+    return ApiResponse(success=True, message=result.message, data=result)
+
+
+@router.get(
+    "/crm/leads/{lead_id}/responses",
+    response_model=ApiResponse[CrmLeadResponseListResponse],
+)
+def read_crm_lead_responses(
+    lead_id: str,
+    db: Session = Depends(get_db),
+    _user=Depends(require_permission("crm.leads.view")),
+) -> ApiResponse[CrmLeadResponseListResponse]:
+    return ApiResponse(success=True, data=list_responses(db, lead_id))
+
+
 @router.patch(
     "/crm/email-drafts/{draft_id}",
     response_model=ApiResponse[CrmEmailDraftItem],
@@ -209,10 +262,19 @@ def approve_crm_email_draft(
     db: Session = Depends(get_db),
     current_user: AuthUser = Depends(require_permission("crm.email.approve")),
 ) -> ApiResponse[CrmEmailDraftItem]:
+    data = approve_email_draft(db, draft_id, current_user.id)
+    log_activity(
+        db,
+        entity_type="email_draft",
+        entity_id=draft_id,
+        action="approved",
+        actor_id=current_user.id,
+        details={"lead_id": data.lead_id, "subject": data.subject},
+    )
     return ApiResponse(
         success=True,
         message="Email draft approved. It is ready for future automated sending.",
-        data=approve_email_draft(db, draft_id, current_user.id),
+        data=data,
     )
 
 
@@ -227,10 +289,19 @@ def reject_crm_email_draft(
     current_user: AuthUser = Depends(require_permission("crm.drafts.review")),
 ) -> ApiResponse[CrmEmailDraftItem]:
     payload = payload.model_copy(update={"rejected_by": current_user.id})
+    data = reject_email_draft(db, draft_id, payload)
+    log_activity(
+        db,
+        entity_type="email_draft",
+        entity_id=draft_id,
+        action="rejected",
+        actor_id=current_user.id,
+        details={"lead_id": data.lead_id, "reason": payload.rejection_reason},
+    )
     return ApiResponse(
         success=True,
         message="Email draft rejected.",
-        data=reject_email_draft(db, draft_id, payload),
+        data=data,
     )
 
 
@@ -244,6 +315,14 @@ def send_crm_approved_email_draft(
     current_user: AuthUser = Depends(require_permission("crm.email.send")),
 ) -> ApiResponse[CrmEmailDraftSendResponse]:
     response = send_approved_email_draft(db, draft_id, requested_by=current_user.id)
+    log_activity(
+        db,
+        entity_type="email_draft",
+        entity_id=draft_id,
+        action="sent",
+        actor_id=current_user.id,
+        details={"message": response.message},
+    )
 
     return ApiResponse(
         success=True,
@@ -356,10 +435,19 @@ def trigger_crm_customer_conversion(
     current_user: AuthUser = Depends(require_permission("crm.customer.convert")),
 ) -> ApiResponse[CrmCustomerConversionTriggerResponse]:
     payload = payload.model_copy(update={"requested_by": current_user.id})
+    data = convert_lead_to_customer(db, lead_id, payload)
+    log_activity(
+        db,
+        entity_type="lead",
+        entity_id=lead_id,
+        action="converted",
+        actor_id=current_user.id,
+        details={"lead_id": lead_id},
+    )
     return ApiResponse(
         success=True,
         message="Customer conversion workflow triggered successfully.",
-        data=convert_lead_to_customer(db, lead_id, payload),
+        data=data,
     )
 
 

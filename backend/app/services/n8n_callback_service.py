@@ -28,6 +28,7 @@ from app.schemas.n8n_callbacks import (
     N8nCallbackResult,
     WorkflowCallbackPayload,
 )
+from app.services.crm_service import _assign_lead_round_robin
 
 DEFAULT_CRM_OWNER_ID = "user_030"
 APPROVED_EMAIL_WORKFLOW_NAME = "FP CRM 04 - Approved Email Sending"
@@ -48,6 +49,74 @@ logger = logging.getLogger(__name__)
 
 def utc_now() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def _score_lead_with_ml(lead: CrmLead, db: Session) -> dict | None:
+    """
+    Score le lead avec le modèle ML et stocke le résultat (ml_score + SHAP).
+
+    Server-side : déclenché après le scoring LLM (handle_scoring_result), quand
+    sentiment/urgence/intention/lead_score sont déjà renseignés. Ne bloque JAMAIS
+    le process CRM — toute erreur (modèle absent, lib manquante…) est avalée.
+    Le score LLM (lead_score) reste intact ; on ajoute ml_* en parallèle.
+
+    Retourne le dict de scoring (pour enrichir la réponse callback) ou None.
+    """
+    try:
+        from app.services.ml_scoring_service import MLScoringService
+
+        service = MLScoringService.get_instance()
+        if not service._model_available:
+            return None
+
+        # Attributs IA réels déjà calculés par le LLM (interaction_count omis -> neutre)
+        known: dict = {}
+        if lead.sentiment:
+            known["sentiment"] = lead.sentiment
+        if lead.urgency:
+            known["urgency"] = lead.urgency
+        if lead.intention:
+            known["intention"] = lead.intention
+        if lead.estimated_value is not None:
+            known["estimated_value"] = float(lead.estimated_value)
+        if lead.product_service:
+            known["product_service"] = lead.product_service
+        if lead.location:
+            known["location"] = lead.location
+
+        result = service.score_lead(
+            lead_id=lead.id,
+            message=lead.message or "",
+            phone=lead.phone,
+            company=lead.company_name,
+            email=lead.email,
+            source=lead.source or "website_form",
+            created_at=lead.created_at,
+            llm_score=lead.lead_score,
+            known=known,
+        )
+
+        lead.ml_score = result["ml_score"]
+        lead.ml_probability = result["ml_probability"]
+        lead.ml_category = result["ml_category"]
+        lead.ml_confidence = result["ml_confidence"]
+        lead.shap_explanation = {
+            "explanation_text": result["explanation_text"],
+            "top_factors": result["top_factors"],
+            "model_version": result["model_version"],
+            "delta": result["delta"],
+            "scored_at": utc_now().isoformat(),
+        }
+        db.add(lead)
+        db.commit()
+        return result
+    except Exception as exc:  # noqa: BLE001 — ne jamais bloquer le process CRM si le ML échoue
+        try:
+            db.rollback()
+        except Exception:  # noqa: BLE001
+            pass
+        logger.warning("ML scoring failed for %s: %s", getattr(lead, "id", "?"), exc)
+        return None
 
 
 def handle_collect_result(
@@ -109,12 +178,14 @@ def handle_collect_result(
             detail="CRM collection callback could not be saved.",
         ) from exc
 
+    assigned_user = db.get(User, lead.assigned_to) if lead.assigned_to else None
     return _callback_result(
         lead_id=lead.id,
         interaction_id=interaction.id,
         status=lead.status,
         workflow_execution_id=workflow_execution_id,
         agent_run_id=agent_run_id,
+        assigned_user=assigned_user,
     )
 
 
@@ -177,7 +248,7 @@ def handle_scoring_result(
         interaction_date=now,
     )
 
-    return _commit_lead_and_interaction(
+    callback_result = _commit_lead_and_interaction(
         lead=lead,
         interaction=interaction,
         status=lead.status,
@@ -186,6 +257,19 @@ def handle_scoring_result(
         db=db,
         failure_detail="CRM scoring callback could not be saved.",
     )
+
+    # Scoring ML automatique (server-side) une fois le score LLM persisté.
+    # Silencieux en cas d'échec : ne bloque jamais le callback CRM.
+    ml = _score_lead_with_ml(lead, db)
+    if ml:
+        callback_result.ml_score = ml["ml_score"]
+        callback_result.ml_category = ml["ml_category"]
+        callback_result.ml_confidence = ml["ml_confidence"]
+        callback_result.ml_delta = ml["delta"]
+        callback_result.ml_explanation = ml["explanation_text"]
+        callback_result.ml_top_factors = ml["top_factors"]
+
+    return callback_result
 
 
 def handle_routing_result(
@@ -509,6 +593,7 @@ def _get_or_create_lead(
         ) from exc
 
     if lead is None:
+        assigned_owner = _assign_lead_round_robin(db) or DEFAULT_CRM_OWNER_ID
         lead = CrmLead(
             id=payload.lead_id or f"lead_{uuid4().hex[:8]}",
             full_name=payload.full_name,
@@ -524,8 +609,8 @@ def _get_or_create_lead(
             product_service=payload.product_service,
             estimated_value=payload.estimated_value,
             notes=payload.notes,
-            owner_user_id=DEFAULT_CRM_OWNER_ID,
-            assigned_to=DEFAULT_CRM_OWNER_ID,
+            owner_user_id=assigned_owner,
+            assigned_to=assigned_owner,
             created_at=now,
             updated_at=now,
         )
@@ -843,6 +928,7 @@ def _callback_result(
     status: str,
     workflow_execution_id: str | None = None,
     agent_run_id: str | None = None,
+    assigned_user: User | None = None,
 ) -> N8nCallbackResult:
     return N8nCallbackResult(
         lead_id=lead_id,
@@ -850,6 +936,9 @@ def _callback_result(
         workflow_execution_id=workflow_execution_id,
         agent_run_id=agent_run_id,
         status=status,
+        assigned_to=assigned_user.id if assigned_user else None,
+        assigned_to_name=assigned_user.full_name if assigned_user else None,
+        assigned_to_email=assigned_user.email if assigned_user else None,
     )
 
 

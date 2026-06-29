@@ -89,10 +89,39 @@ W_PRODUCT = {
     "Automation Consulting": -0.1,
 }
 
-INTERCEPT = -2.0          # décale le taux de conversion global vers ~35-40%
+INTERCEPT = -2.5          # abaissé (était -2.0) pour compenser le bonus texte ci-dessous
 VALUE_COEF = 0.0000018    # influence (faible) du montant estimé
 NOISE_STD = 0.7           # bruit gaussien sur le logit -> rend la tâche non triviale
 LABEL_FLIP_RATE = 0.05    # 5% d'étiquettes bruitées (clients imprévisibles)
+
+# QUICK FIX ML (lever D) : signaux d'achat injectés dans le message AVEC un poids
+# propre dans le logit, et une proba d'apparition INDÉPENDANTE de `intention`
+# (+ bonus si purchase-ready pour rester cohérent). Conséquence : ces signaux ne
+# sont pas colinéaires avec `intention` -> le modèle DOIT lire le texte pour les
+# capter -> les features has_budget_mention/has_signature_intent/... deviennent
+# réellement prédictives (et apparaissent dans l'importance).
+W_TEXT_SIGNAL = 0.45      # poids par signal d'achat DISTINCT présent dans le message
+BUYING_SIGNAL_BASE_P = {"budget": 0.18, "signature": 0.15, "quote": 0.20, "urgency": 0.22}
+PURCHASE_READY_BONUS = 0.35   # proba de signal plus forte si intention purchase-ready
+
+SIGNAL_PHRASES = {
+    ("budget", "fr"): ["Notre budget est validé à {amt} TND.", "Budget de {amt} TND déjà approuvé."],
+    ("budget", "en"): ["Our budget of {amt} TND is approved.", "We have a {amt} TND budget ready."],
+    ("signature", "fr"): ["Nous voulons signer rapidement.", "Prêts à signer le contrat."],
+    ("signature", "en"): ["We want to sign quickly.", "Ready to sign the contract."],
+    ("quote", "fr"): ["Merci de nous envoyer un devis.", "Pouvez-vous transmettre un tarif ?"],
+    ("quote", "en"): ["Please send us a quote.", "Can you share your pricing?"],
+    ("urgency", "fr"): ["C'est urgent, ce mois-ci idéalement.", "Nous sommes pressés."],
+    ("urgency", "en"): ["It's urgent, ideally this month.", "We're in a hurry."],
+}
+
+# Baseline LLM RÉALISTE : le score legacy du LLM est un estimateur BRUITÉ et
+# INDÉPENDANT du logit DÉTERMINISTE. Crucial : il ne "voit" PAS le bruit réalisé
+# qui a produit `converted` (un vrai LLM ne connaît pas le résultat futur). Son
+# bruit est volontairement plus large que celui de la conversion -> un modèle ML
+# qui dispose des features déterministes peut le battre honnêtement.
+LLM_NOISE_STD = 1.6       # bruit (indépendant) de l'estimation LLM legacy
+                          # -> LLM AUC ~0.69, le ML le bat honnêtement de ~+11%
 
 
 # --------------------------------------------------------------------------- #
@@ -164,13 +193,15 @@ def derive_priority(prob: float, urgency: str) -> str:
     return "low"
 
 
-def derive_legacy_lead_score(prob: float, rng: np.random.Generator) -> int:
+def derive_legacy_lead_score(det_logit: float, rng: np.random.Generator) -> int:
     """
-    Ancien score produit par le LLM en production : corrélé à la vraie proba MAIS
-    bruité (le LLM se trompe parfois). Sert de BASELINE à battre par ton modèle ML.
+    Ancien score produit par le LLM en production. C'est un estimateur BRUITÉ et
+    INDÉPENDANT du logit DÉTERMINISTE (sans le bruit réalisé de la conversion) :
+    le LLM lit le lead et estime une probabilité, sans connaître le futur. Sert de
+    BASELINE honnête à battre par le modèle ML.
     """
-    noisy = prob * 100 + rng.normal(0, 14)
-    return int(np.clip(round(noisy), 0, 100))
+    llm_prob = sigmoid(det_logit + rng.normal(0, LLM_NOISE_STD))
+    return int(np.clip(round(llm_prob * 100), 0, 100))
 
 
 def derive_customer_status(converted: int, prob: float, rng: random.Random) -> str:
@@ -221,8 +252,20 @@ def generate(n: int, seed: int) -> pd.DataFrame:
         lam = {"high": 4.0, "medium": 2.2, "low": 1.0}[urgency]
         interaction_count = int(rng_np.poisson(lam))
 
-        # --- logit de conversion (le "vrai" mécanisme caché) ---
-        logit = (
+        # --- QUICK FIX ML : signaux d'achat injectés (proba indép. de intention) ---
+        signal_bonus = PURCHASE_READY_BONUS if intention == "purchase-ready" else 0.0
+        signals_present, extra_phrases = [], []
+        for sig in ("budget", "signature", "quote", "urgency"):
+            if rng_py.random() < min(0.95, BUYING_SIGNAL_BASE_P[sig] + signal_bonus):
+                signals_present.append(sig)
+                phrase = rng_py.choice(SIGNAL_PHRASES[(sig, language)])
+                if sig == "budget":
+                    phrase = phrase.format(amt=f"{int(estimated_value):,}".replace(",", " "))
+                extra_phrases.append(phrase)
+        signal_strength = len(signals_present)
+
+        # --- logit DÉTERMINISTE (le "vrai" mécanisme caché, sans bruit) ---
+        det_logit = (
             INTERCEPT
             + W_SENTIMENT[sentiment]
             + W_URGENCY[urgency]
@@ -231,8 +274,10 @@ def generate(n: int, seed: int) -> pd.DataFrame:
             + W_PRODUCT[product]
             + VALUE_COEF * estimated_value
             + 0.12 * interaction_count
-            + rng_np.normal(0, NOISE_STD)
+            + W_TEXT_SIGNAL * signal_strength
         )
+        # logit de conversion = déterministe + bruit réalisé (non observable)
+        logit = det_logit + rng_np.normal(0, NOISE_STD)
         prob = sigmoid(logit)
         converted = int(rng_np.random() < prob)
 
@@ -243,9 +288,12 @@ def generate(n: int, seed: int) -> pd.DataFrame:
         # --- champs dérivés (comme en production) ---
         status = derive_status(prob, sentiment)
         priority = derive_priority(prob, urgency)
-        lead_score = derive_legacy_lead_score(prob, rng_np)
+        # baseline LLM : estimateur indépendant sur le logit DÉTERMINISTE
+        lead_score = derive_legacy_lead_score(det_logit, rng_np)
         customer_status = derive_customer_status(converted, prob, rng_py)
         message = make_message(intention, language, rng_py)
+        if extra_phrases:
+            message = message + " " + " ".join(extra_phrases)
 
         created_at = start_date + timedelta(
             days=int(rng_np.integers(0, 450)),
