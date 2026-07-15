@@ -13,6 +13,7 @@ from app.core.database import get_db
 from app.schemas.auth import AuthUser
 from app.schemas.common import ApiResponse, PaginatedResponse
 from app.schemas.crm import (
+    CrmCommunicationDraftTriggerRequest,
     CrmCommunicationDraftTriggerResponse,
     CrmCustomerConversionRequest,
     CrmCustomerConversionTriggerResponse,
@@ -157,13 +158,16 @@ def submit_public_crm_lead(
 )
 def trigger_crm_communication_draft(
     lead_id: str,
+    payload: CrmCommunicationDraftTriggerRequest | None = None,
     db: Session = Depends(get_db),
     _user=Depends(require_permission("crm.drafts.generate")),
 ) -> ApiResponse[CrmCommunicationDraftTriggerResponse]:
+    # Corps optionnel : un ancien client sans body retombe sur 'initial'.
+    draft_type = (payload or CrmCommunicationDraftTriggerRequest()).draft_type
     return ApiResponse(
         success=True,
         message="Communication draft workflow triggered successfully.",
-        data=generate_communication_draft_for_lead(db, lead_id),
+        data=generate_communication_draft_for_lead(db, lead_id, draft_type=draft_type),
     )
 
 

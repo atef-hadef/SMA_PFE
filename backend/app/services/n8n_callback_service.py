@@ -33,6 +33,9 @@ from app.services.crm_service import _assign_lead_round_robin
 DEFAULT_CRM_OWNER_ID = "user_030"
 APPROVED_EMAIL_WORKFLOW_NAME = "FP CRM 04 - Approved Email Sending"
 CONVERSION_PENDING_STATUS = "conversion_pending"
+# Statut renvoyé par FP_CRM_02 quand l'appel LLM échoue (modèle indisponible,
+# quota, réponse illisible…). Aucun brouillon ne doit être créé dans ce cas.
+LLM_GENERATION_FAILED_STATUS = "llm_generation_failed"
 CUSTOMER_LIFECYCLE_TIERS = {
     "customer",
     "active_customer",
@@ -344,6 +347,14 @@ def handle_communication_result(
     lead = _get_required_lead(payload.lead_id, db)
     now = utc_now()
 
+    # Échec de génération IA : le workflow n'a produit aucun contenu rédigé par le
+    # modèle. On trace l'échec (interaction + workflow_execution) mais on ne crée
+    # AUCUN brouillon : auparavant un template statique était persisté comme s'il
+    # venait de l'IA, ce qui rendait l'échec invisible côté CRM.
+    llm_failed = (
+        payload.communication_status or ""
+    ).strip().lower() == LLM_GENERATION_FAILED_STATUS
+
     if payload.next_action is not None:
         lead.next_action = payload.next_action
     if payload.sent or payload.status == "sent":
@@ -353,7 +364,12 @@ def handle_communication_result(
     interaction = _build_interaction(
         lead_id=lead.id,
         interaction_type=_communication_interaction_type(payload),
-        summary=_communication_summary(payload),
+        summary=(
+            f"AI communication draft generation failed: "
+            f"{payload.error_message or 'unknown error'}"
+            if llm_failed
+            else _communication_summary(payload)
+        ),
         channel=_communication_channel(payload),
         interaction_date=now,
     )
@@ -366,7 +382,7 @@ def handle_communication_result(
     new_body = _communication_body(payload)
     draft_persisted = False
     draft_type = _communication_draft_type(payload)
-    if new_subject or new_body:
+    if not llm_failed and (new_subject or new_body):
         existing_pending = _find_pending_draft(db, lead.id, draft_type)
 
         if existing_pending is not None:

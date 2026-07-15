@@ -349,9 +349,18 @@ function scoreCrmLead(input: LeadScoringInput) {
   return post<{ leadId: string; score: number }>(`/crm/leads/${input.leadId}/score`, input)
 }
 
-function generateCommunicationDraft(leadId: string) {
+// draft_type porte l'intention de génération jusqu'au workflow n8n CRM_02.
+// 'initial' = premier email commercial ; les autres produisent une relance /
+// réactivation / clarification au lieu de réutiliser le message initial du lead.
+type GenerateCommunicationDraftType = 'initial' | 'follow_up' | 'reactivation' | 'information'
+
+function generateCommunicationDraft(
+  leadId: string,
+  draftType: GenerateCommunicationDraftType = 'initial',
+) {
   return post<CrmCommunicationDraftResponse>(
     `/crm/leads/${leadId}/generate-communication-draft`,
+    { draft_type: draftType },
   )
 }
 
@@ -422,6 +431,7 @@ export type {
   CrmEmailDraftItem,
   CrmEmailDraftSendResponse,
   CrmEmailDraftUpdateInput,
+  GenerateCommunicationDraftType,
   CrmLeadInteractionInput,
   CrmLeadCreatedResponse,
   CrmLeadDetail,

@@ -111,6 +111,12 @@ class CrmCommunicationResultPayload(BaseModel):
     email_body: str | None = None
     communication_status: str | None = None
     draft_type: str | None = None
+    # Provenance du contenu : 'llm' quand le modèle a réellement rédigé l'email,
+    # 'none' quand la génération a échoué. Le workflow CRM_02 renvoyait autrefois
+    # un template statique en se déclarant en succès : ce champ rend la
+    # provenance explicite pour ne plus jamais être trompé par un faux succès.
+    generated_by: str | None = None
+    error_message: str | None = None
     tone: str | None = None
     cta: str | None = None
     subject: str | None = None
