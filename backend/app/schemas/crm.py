@@ -264,8 +264,19 @@ class CrmLeadCreatedResponse(BaseModel):
     created_at: datetime
 
 
+# Intention de génération transmise au workflow CRM_02. 'initial' = premier email
+# commercial ; les autres adaptent le contenu (relance sans réponse, réactivation
+# d'un lead perdu, clarification demandée) au lieu de réutiliser le message du lead.
+CommunicationDraftType = Literal["initial", "follow_up", "reactivation", "information"]
+
+
+class CrmCommunicationDraftTriggerRequest(BaseModel):
+    draft_type: CommunicationDraftType = "initial"
+
+
 class CrmCommunicationDraftTriggerResponse(BaseModel):
     lead_id: str
+    draft_type: CommunicationDraftType = "initial"
     n8n_response: Any
 
 

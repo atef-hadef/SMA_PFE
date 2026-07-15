@@ -231,13 +231,18 @@ type StatePlan = {
   tertiary?: StatePlanAction
 }
 
+// Intention de génération transmise de bout en bout (front → endpoint → n8n).
+// `initial` = premier email commercial ; les autres adaptent le contenu (relance,
+// réactivation d'un lead perdu, email de clarification). Aligné sur DRAFT_TYPES backend.
+type GenerateDraftType = 'initial' | 'follow_up' | 'reactivation' | 'information'
+
 type StatePlanContext = {
   can: (perm: string) => boolean
   pendingAction: string | null
   activeDraft: CrmEmailDraftItem | null
   latestSentDraft: CrmEmailDraftItem | null
   lastInteractionLabel: string | null
-  onGenerateDraft: () => void
+  onGenerateDraft: (draftType?: GenerateDraftType) => void
   onViewDraft: (draftId: string) => void
   onEditDraft: (draft: CrmEmailDraftItem) => void
   onReviewDraft: (draftId: string) => void
@@ -334,11 +339,15 @@ function buildStatePlan(
       ]
     : []
 
-  const generateDraftAction = (label: string, variant: ActionButtonVariant = 'primary'): StatePlanAction => ({
+  const generateDraftAction = (
+    label: string,
+    variant: ActionButtonVariant = 'primary',
+    draftType: GenerateDraftType = 'initial',
+  ): StatePlanAction => ({
     label,
     iconName: 'mail',
     variant,
-    onClick: ctx.onGenerateDraft,
+    onClick: () => ctx.onGenerateDraft(draftType),
     disabled: !ctx.can('crm.drafts.generate') || ctx.pendingAction === 'generate_draft',
     pendingKey: 'generate_draft',
   })
@@ -527,7 +536,7 @@ function buildStatePlan(
         workflowBadge,
         contextItems: sentContext,
         primary: createTaskAction('Créer tâche de relance', 'primary'),
-        secondary: generateDraftAction('Générer un email de relance', 'secondary'),
+        secondary: generateDraftAction('Générer un email de relance', 'secondary', 'follow_up'),
       }
 
     case 'positive_response_recorded':
@@ -673,7 +682,7 @@ function buildStatePlan(
           ? [{ label: 'Dernier signal', value: ctx.lastInteractionLabel }]
           : undefined,
         primary: createTaskAction('Créer tâche de relance', 'primary'),
-        secondary: generateDraftAction('Générer email de réactivation', 'secondary'),
+        secondary: generateDraftAction('Générer email de réactivation', 'secondary', 'reactivation'),
       }
 
     case 'neutral_response_recorded':
@@ -687,7 +696,7 @@ function buildStatePlan(
           ? [{ label: 'Dernier signal', value: ctx.lastInteractionLabel }]
           : undefined,
         primary: createTaskAction('Créer tâche de relance', 'primary'),
-        secondary: generateDraftAction("Générer email d'information", 'secondary'),
+        secondary: generateDraftAction("Générer email d'information", 'secondary', 'information'),
       }
 
     case 'failed':
@@ -845,25 +854,42 @@ function CRMLeadDetailsPage() {
     void refresh()
   }, [refresh])
 
+  // Réinitialise les bannières d'action avant d'ouvrir une modale, afin qu'une
+  // erreur d'une action précédente ne s'affiche pas dans une modale fraîchement ouverte.
+  const clearActionFeedback = useCallback(() => {
+    setActionError(null)
+    setActionInfo(null)
+  }, [])
   const openTaskForm = useCallback(() => {
+    clearActionFeedback()
     const tomorrow = new Date(Date.now() + 86400000).toISOString().slice(0, 16)
     setTaskForm({ title: '', due_date: tomorrow, priority: 'medium' })
-  }, [])
+  }, [clearActionFeedback])
   const openDealForm = useCallback(() => {
+    clearActionFeedback()
     setDealForm({ title: '', amount: '', probability_percent: 20 })
-  }, [])
+  }, [clearActionFeedback])
   const openConfirmCustomerForm = useCallback(() => {
+    clearActionFeedback()
     setConfirmCustomer({
       validation_reason: 'Le prospect a confirmé son intérêt',
       evidence_source: 'Réponse email',
       next_action: 'Préparer la communication de bienvenue',
       conversion_note: '',
     })
-  }, [])
+  }, [clearActionFeedback])
   const handleViewDraft = useCallback((draftId: string) => setViewingDraftId(draftId), [])
+  const openEditDraft = useCallback(
+    (draft: CrmEmailDraftItem) => {
+      clearActionFeedback()
+      setEditing({ draftId: draft.id, subject: draft.subject || '', body: stripHtml(draft.body || '') })
+    },
+    [clearActionFeedback],
+  )
   const openResponseForm = useCallback(() => {
+    clearActionFeedback()
     setResponseForm({ response_type: 'interested', notes: '', next_action_date: '' })
-  }, [])
+  }, [clearActionFeedback])
 
   const sortedDrafts = useMemo(
     () =>
@@ -910,11 +936,17 @@ function CRMLeadDetailsPage() {
     [refresh],
   )
 
-  const handleGenerateDraft = () =>
+  const handleGenerateDraft = (draftType: GenerateDraftType = 'initial') =>
     handleAsync(
       'generate_draft',
-      () => generateCommunicationDraft(leadId),
-      'Brouillon de communication demandé.',
+      () => generateCommunicationDraft(leadId, draftType),
+      draftType === 'follow_up'
+        ? 'Email de relance demandé.'
+        : draftType === 'reactivation'
+          ? 'Email de réactivation demandé.'
+          : draftType === 'information'
+            ? "Email d'information demandé."
+            : 'Brouillon de communication demandé.',
     )
 
   const handleReview = (draftId: string) =>
@@ -1077,10 +1109,9 @@ function CRMLeadDetailsPage() {
     activeDraft,
     latestSentDraft,
     lastInteractionLabel: lastInteraction?.label || null,
-    onGenerateDraft: () => void handleGenerateDraft(),
+    onGenerateDraft: (draftType?: GenerateDraftType) => void handleGenerateDraft(draftType),
     onViewDraft: handleViewDraft,
-    onEditDraft: (draft) =>
-      setEditing({ draftId: draft.id, subject: draft.subject || '', body: stripHtml(draft.body || '') }),
+    onEditDraft: openEditDraft,
     onReviewDraft: (draftId) => void handleReview(draftId),
     onApproveDraft: (draftId) => void handleApprove(draftId),
     onRejectDraft: (draftId) => void handleReject(draftId),
@@ -1252,13 +1283,7 @@ function CRMLeadDetailsPage() {
                   setExpandedDraftId(expandedDraftId === draft.id ? null : draft.id)
                 }
                 isPending={(key: string) => pendingAction === `${key}_${draft.id}`}
-                onEdit={() =>
-                  setEditing({
-                    draftId: draft.id,
-                    subject: draft.subject || '',
-                    body: stripHtml(draft.body || ''),
-                  })
-                }
+                onEdit={() => openEditDraft(draft)}
                 onReview={() => void handleReview(draft.id)}
                 onApprove={() => void handleApprove(draft.id)}
                 onReject={() => void handleReject(draft.id)}
@@ -1503,7 +1528,7 @@ function CRMLeadDetailsPage() {
       ) : null}
 
       {editing ? (
-        <Modal title="Modifier le brouillon" onClose={() => setEditing(null)}>
+        <Modal title="Modifier le brouillon" onClose={() => setEditing(null)} error={actionError}>
           <Field label="Objet">
             <input
               value={editing.subject}
@@ -1532,7 +1557,7 @@ function CRMLeadDetailsPage() {
       ) : null}
 
       {taskForm ? (
-        <Modal title="Créer une tâche" onClose={() => setTaskForm(null)}>
+        <Modal title="Créer une tâche" onClose={() => setTaskForm(null)} error={actionError}>
           <Field label="Titre">
             <input
               value={taskForm.title}
@@ -1574,7 +1599,7 @@ function CRMLeadDetailsPage() {
       ) : null}
 
       {dealForm ? (
-        <Modal title="Créer un deal" onClose={() => setDealForm(null)}>
+        <Modal title="Créer un deal" onClose={() => setDealForm(null)} error={actionError}>
           <Field label="Intitulé du deal">
             <input
               value={dealForm.title}
@@ -1621,7 +1646,7 @@ function CRMLeadDetailsPage() {
       ) : null}
 
       {confirmCustomer ? (
-        <Modal title="Confirmer comme client" onClose={() => setConfirmCustomer(null)}>
+        <Modal title="Confirmer comme client" onClose={() => setConfirmCustomer(null)} error={actionError}>
           <Field label="Raison de la conversion">
             <input
               value={confirmCustomer.validation_reason}
@@ -1682,7 +1707,7 @@ function CRMLeadDetailsPage() {
       ) : null}
 
       {responseForm ? (
-        <Modal title="📩 Enregistrer une réponse" onClose={() => setResponseForm(null)}>
+        <Modal title="📩 Enregistrer une réponse" onClose={() => setResponseForm(null)} error={actionError}>
           <Field label="Type de réponse">
             <select
               value={responseForm.response_type}
@@ -1917,8 +1942,8 @@ function DraftActivityLines({ draft }: { draft: CrmEmailDraftItem }) {
   )
 }
 
-type ModalProps = { title: string; onClose: () => void; children: ReactNode }
-function Modal({ title, onClose, children }: ModalProps) {
+type ModalProps = { title: string; onClose: () => void; children: ReactNode; error?: string | null }
+function Modal({ title, onClose, children, error }: ModalProps) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 p-4">
       <div className="w-full max-w-2xl rounded-2xl border border-slate-800 bg-slate-900 shadow-2xl">
@@ -1933,7 +1958,18 @@ function Modal({ title, onClose, children }: ModalProps) {
             <Icon name="close" size={16} />
           </button>
         </div>
-        <div className="space-y-4 px-5 py-4">{children}</div>
+        <div className="space-y-4 px-5 py-4">
+          {/* La modale est en `fixed inset-0 z-50` : elle recouvre la bannière
+              d'erreur de la page. On réaffiche donc l'erreur ici pour qu'elle
+              reste visible quand une action échoue sans fermer la modale. */}
+          {error ? (
+            <div className="flex items-start gap-2 rounded-lg border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-sm text-rose-100">
+              <Icon name="close" size={14} className="mt-0.5 shrink-0" />
+              <span>{error}</span>
+            </div>
+          ) : null}
+          {children}
+        </div>
       </div>
     </div>
   )

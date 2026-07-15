@@ -784,6 +784,7 @@ def get_email_draft_send_package(
 def generate_communication_draft_for_lead(
     db: Session,
     lead_id: str,
+    draft_type: str = "initial",
 ) -> CrmCommunicationDraftTriggerResponse:
     try:
         lead = db.get(CrmLead, lead_id)
@@ -796,7 +797,7 @@ def generate_communication_draft_for_lead(
     if lead is None:
         raise HTTPException(status_code=404, detail="CRM lead not found.")
 
-    payload = _build_communication_draft_payload(lead, db)
+    payload = _build_communication_draft_payload(lead, db, draft_type=draft_type)
     outbox = webhook_outbox_service.enqueue(
         db,
         _communication_draft_webhook_url(),
@@ -806,10 +807,36 @@ def generate_communication_draft_for_lead(
         workflow_name="FP_CRM_02_Communication_Draft",
     )
     n8n_response = webhook_outbox_service.sync_attempt(db, outbox)
+    _raise_if_draft_generation_failed(n8n_response)
 
     return CrmCommunicationDraftTriggerResponse(
         lead_id=lead.id,
+        draft_type=draft_type,  # type: ignore[arg-type]
         n8n_response=n8n_response,
+    )
+
+
+def _raise_if_draft_generation_failed(n8n_response: object) -> None:
+    """Fait remonter un échec de génération IA à l'UI.
+
+    Le workflow CRM_02 répond désormais `{ok: false, error: 'llm_generation_failed'}`
+    quand le modèle n'a rien pu rédiger. Sans ce contrôle, l'appel HTTP réussissait
+    (2xx) et l'UI affichait un message de succès alors qu'aucun brouillon n'était
+    créé — c'est exactement ce qui a masqué le modèle LLM mort pendant des semaines.
+    """
+    if not isinstance(n8n_response, dict):
+        return
+    if n8n_response.get("ok") is not False:
+        return
+
+    detail = str(
+        n8n_response.get("message")
+        or n8n_response.get("error")
+        or "AI draft generation failed."
+    )
+    raise HTTPException(
+        status_code=502,
+        detail=f"La génération IA du brouillon a échoué : {detail}",
     )
 
 
@@ -2282,7 +2309,78 @@ def _to_title_case_name(value: str | None) -> str | None:
     )
 
 
-def _build_communication_draft_payload(lead: CrmLead, db: Session) -> dict[str, str | None]:
+# Métadonnées par type de génération, exploitées par le workflow n8n CRM_02 pour
+# adapter le prompt LLM. 'initial' garde le comportement historique (email de vente).
+COMMUNICATION_DRAFT_PURPOSES: dict[str, dict[str, str]] = {
+    "initial": {
+        "email_purpose": "Premier email commercial de prise de contact",
+        "response_context": "first_touch",
+        "instruction": (
+            "Rédige un premier email commercial personnalisé qui présente notre "
+            "offre à partir du besoin exprimé par le prospect."
+        ),
+    },
+    "follow_up": {
+        "email_purpose": "Relance après absence de réponse au premier email",
+        "response_context": "no_response",
+        "instruction": (
+            "Le prospect n'a pas répondu à notre premier email. Rédige une relance "
+            "courtoise et concise qui rappelle le message précédent, apporte un "
+            "élément de valeur supplémentaire et propose un prochain pas simple. "
+            "Ne réécris pas le premier email à l'identique."
+        ),
+    },
+    "reactivation": {
+        "email_purpose": "Réactivation d'un lead ayant décliné",
+        "response_context": "not_interested",
+        "instruction": (
+            "Le prospect s'était montré non intéressé. Rédige un email de "
+            "réactivation à faible pression qui reprend contact sous un angle "
+            "nouveau (nouveauté, cas d'usage, offre) sans insister sur le refus."
+        ),
+    },
+    "information": {
+        "email_purpose": "Email d'information / clarification demandée",
+        "response_context": "requested_more_information",
+        "instruction": (
+            "Le prospect a demandé plus d'informations. Rédige un email de "
+            "clarification qui répond précisément à sa demande et lève les "
+            "objections potentielles, en s'appuyant sur l'échange précédent."
+        ),
+    },
+}
+
+
+def _latest_communication_draft(db: Session, lead_id: str) -> CrmEmailDraft | None:
+    """Dernier brouillon de communication (email de vente) pour un lead, en
+    privilégiant un email réellement envoyé, sinon le plus récent. Sert de
+    référence pour les relances afin que n8n ne reparte pas du message initial."""
+    try:
+        drafts = list(
+            db.scalars(
+                select(CrmEmailDraft).where(CrmEmailDraft.lead_id == lead_id)
+            ).all()
+        )
+    except SQLAlchemyError:
+        logger.exception("Previous communication draft could not be loaded for lead %s.", lead_id)
+        return None
+
+    communication = [
+        d for d in drafts if _display_draft_type(d.draft_type) == "communication"
+    ]
+    if not communication:
+        return None
+
+    sent = [d for d in communication if _safe_draft_status(d.status) == "sent"]
+    pool = sent or communication
+    return max(pool, key=lambda d: d.sent_at or d.updated_at or d.created_at)
+
+
+def _build_communication_draft_payload(
+    lead: CrmLead,
+    db: Session,
+    draft_type: str = "initial",
+) -> dict[str, object | None]:
     # Nom complet du commercial assigné, normalisé, pour la signature de l'email
     # généré par le workflow CRM_02. Chaîne vide si le lead n'est pas assigné.
     assigned_user = db.get(User, lead.assigned_to) if lead.assigned_to else None
@@ -2291,8 +2389,16 @@ def _build_communication_draft_payload(lead: CrmLead, db: Session) -> dict[str, 
         if assigned_user and assigned_user.full_name
         else ""
     )
-    return {
+    normalized_type = draft_type if draft_type in COMMUNICATION_DRAFT_PURPOSES else "initial"
+    purpose = COMMUNICATION_DRAFT_PURPOSES[normalized_type]
+
+    payload: dict[str, object | None] = {
         "lead_id": lead.id,
+        "draft_type": normalized_type,
+        "is_follow_up": normalized_type != "initial",
+        "email_purpose": purpose["email_purpose"],
+        "response_context": purpose["response_context"],
+        "generation_instruction": purpose["instruction"],
         "full_name": _to_title_case_name(lead.full_name),
         "assigned_to_name": assigned_to_name,
         "email": lead.email,
@@ -2307,7 +2413,26 @@ def _build_communication_draft_payload(lead: CrmLead, db: Session) -> dict[str, 
         "ai_summary": lead.ai_summary,
         "recommended_action": lead.recommended_action,
         "requested_by": DEFAULT_CRM_OWNER_ID,
+        # Champs de contexte "email précédent" : null pour un premier email.
+        "previous_email_subject": None,
+        "previous_email_body": None,
+        "previous_email_sent_at": None,
     }
+
+    # Pour toute génération autre que l'email initial, on joint le contenu du
+    # dernier email de communication afin que le workflow rédige une VRAIE suite
+    # (relance / réactivation / clarification) plutôt que de recopier le message
+    # initial du lead.
+    if normalized_type != "initial":
+        previous = _latest_communication_draft(db, lead.id)
+        if previous is not None:
+            payload["previous_email_subject"] = previous.subject
+            payload["previous_email_body"] = previous.body
+            payload["previous_email_sent_at"] = (
+                previous.sent_at.isoformat() if previous.sent_at else None
+            )
+
+    return payload
 
 
 def _build_customer_conversion_payload(
