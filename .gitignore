@@ -93,6 +93,12 @@ out
 
 # n8n workflows exports - may contain API keys or credentials
 workflows/*
+# Exception : FP_CRM_02 est versionne (secrets uniquement via $env.*, pinData vide).
+# Git ne descend pas dans un repertoire exclu : il faut donc reinclure workflows/crm/
+# puis re-exclure son contenu avant de negocier le fichier voulu.
+!workflows/crm/
+workflows/crm/*
+!workflows/crm/FP_CRM_02_Communication_Draft (1).json
 
 # MLflow local tracking store + large model artifacts (regenerable by retraining)
 ml/mlruns/

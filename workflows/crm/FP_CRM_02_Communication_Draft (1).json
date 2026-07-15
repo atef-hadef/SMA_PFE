@@ -1,0 +1,289 @@
+{
+  "name": "FP_CRM_02_Communication_Draft",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "flowpilot-crm-communication-draft",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "667e04b0-b3a4-45e3-b5d5-1e16b87f5e35",
+      "name": "🔗 FastAPI Trigger - Generate Communication Draft",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -560,
+        272
+      ],
+      "webhookId": "flowpilot-crm-communication-draft"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const body = $json.body || $json;\nconst headers = $json.headers || {};\n\n// --------------------------------------------------\n// 1. Security check\n// --------------------------------------------------\n// For local MVP testing, we use the same secret as Workflow 01.\n// Later you can replace this with $env.FLOWPILOT_N8N_SHARED_SECRET.\nconst expectedSecret = $env.FLOWPILOT_INTERNAL_SECRET;\nif (!expectedSecret) {\n  throw new Error('FLOWPILOT_INTERNAL_SECRET env var is not set in n8n.');\n}\n\nconst incomingSecret =\n  headers['x-flowpilot-secret'] ||\n  headers['X-FlowPilot-Secret'] ||\n  body.flowpilot_secret ||\n  '';\n\nif (incomingSecret !== expectedSecret) {\n  return {\n    valid: false,\n    errors: ['UNAUTHORIZED'],\n    message: 'Invalid FlowPilot secret.'\n  };\n}\n\n// --------------------------------------------------\n// 2. Helpers\n// --------------------------------------------------\nconst clean = (value, max = 1000) => {\n  if (value === undefined || value === null) return '';\n  return String(value).trim().substring(0, max);\n};\n\nconst allowedUsers = ['user_001', 'user_010', 'user_020', 'user_030'];\n\nconst requestedBy = allowedUsers.includes(body.requested_by)\n  ? body.requested_by\n  : 'user_030';\n\n// --------------------------------------------------\n// 3. Required fields validation\n// --------------------------------------------------\nconst errors = [];\n\nconst leadId = clean(body.lead_id || body.id, 100);\nconst email = clean(body.email, 255).toLowerCase();\n\nif (!leadId) {\n  errors.push('LEAD_ID_REQUIRED');\n}\n\nif (!email || !/^[^\\s@]+@[^\\s@]+\\.[^\\s@]{2,}$/.test(email)) {\n  errors.push('VALID_EMAIL_REQUIRED');\n}\n\nif (errors.length > 0) {\n  return {\n    valid: false,\n    errors,\n    message: 'Communication draft request rejected by validation.'\n  };\n}\n\n// --------------------------------------------------\n// 4. Normalize lead context\n// --------------------------------------------------\nconst now = new Date().toISOString();\n\nreturn {\n  valid: true,\n  errors: [],\n  warnings: [],\n  workflow_name: 'FP_CRM_02_Communication_Draft',\n  process: 'CRM',\n  started_at: now,\n  requested_by: requestedBy,\n\n  lead: {\n    lead_id: leadId,\n    full_name: clean(body.full_name || body.name, 200),\n    assigned_to_name: clean(body.assigned_to_name, 200),\n    email,\n    phone: clean(body.phone, 80),\n    company_name: clean(body.company_name || body.company || body.organization, 200),\n    source: clean(body.source || 'crm_ui', 100),\n\n    message: clean(body.message || body.original_message || '', 5000),\n    product_service: clean(body.product_service || body.product || 'AI CRM Automation', 200),\n\n    customer_status: clean(body.customer_status || 'prospect', 100),\n    status: clean(body.status || 'hot', 100),\n    priority: clean(body.priority || 'high', 100),\n\n    sentiment: clean(body.sentiment || '', 100),\n    intention: clean(body.intention || '', 100),\n    urgency: clean(body.urgency || '', 100),\n    ai_summary: clean(body.ai_summary || '', 5000),\n    recommended_action: clean(body.recommended_action || '', 5000),\n    next_action: clean(body.next_action || '', 1000),\n\n    estimated_value: Number(body.estimated_value || 0) || null,\n    customer_category: clean(body.customer_category || '', 100),\n    location: clean(body.location || '', 200),\n    notes: clean(body.notes || '', 2000),\n\n    draft_type: clean(body.draft_type || 'initial', 40),\n    email_purpose: clean(body.email_purpose || '', 200),\n    response_context: clean(body.response_context || 'first_touch', 60),\n    generation_instruction: clean(body.generation_instruction || '', 2000),\n    previous_email_subject: clean(body.previous_email_subject || '', 500),\n    previous_email_body: clean(body.previous_email_body || '', 8000),\n    previous_email_sent_at: clean(body.previous_email_sent_at || '', 60),\n\n    requested_by: requestedBy\n  }\n};"
+      },
+      "id": "6063b9ed-b5ab-4ead-a425-3ef970f6bc01",
+      "name": "🧾 Prepare Communication Context",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -288,
+        272
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "92198953-aa30-4978-ad29-93aafa60fcd0",
+              "leftValue": "={{ $json.valid }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "dfd38f9e-a7ea-4799-9c3e-6516571e0d08",
+      "name": "✅ Authorized + Valid?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -48,
+        272
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://openrouter.ai/api/v1/chat/completions",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.OPENROUTER_API_KEY }}"
+            },
+            {
+              "name": "HTTP-Referer",
+              "value": "={{ 'http://localhost:5173' || 'http://localhost:5173' }}"
+            },
+            {
+              "name": "X-Title",
+              "value": "TAC-TIC CRM"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ (() => {\n  const lead = $json.lead || {};\n\n  const clean = (value, fallback = '') => {\n    if (value === undefined || value === null) return fallback;\n    return String(value).trim();\n  };\n\n  const titleCaseName = (name) => {\n    return clean(name)\n      .toLowerCase()\n      .split(/\\s+/)\n      .filter(Boolean)\n      .map((part) => part.charAt(0).toUpperCase() + part.slice(1))\n      .join(' ');\n  };\n\n  const leadId = clean(lead.lead_id);\n  const prospectName = titleCaseName(lead.full_name || '');\n  const email = clean(lead.email);\n  const companyName = clean(lead.company_name);\n  const productService = clean(lead.product_service, 'TAC-TIC');\n  const originalMessage = clean(lead.message);\n  const aiSummary = clean(lead.ai_summary);\n  const intention = clean(lead.intention);\n  const urgency = clean(lead.urgency);\n  const priority = clean(lead.priority);\n  const assignedToName = clean(lead.assigned_to_name);\n  const draftType = clean(lead.draft_type, 'initial') || 'initial';\n  const emailPurpose = clean(lead.email_purpose);\n  const generationInstruction = clean(lead.generation_instruction);\n  const previousEmailSubject = clean(lead.previous_email_subject);\n  const previousEmailBody = clean(lead.previous_email_body);\n  const isFollowUp = draftType && draftType !== 'initial';\n  const followUpBlock = isFollowUp\n    ? '\\n\\nEMAIL TYPE (this is NOT a first contact): ' + emailPurpose + '\\n' +\n      'SPECIAL INSTRUCTION: ' + generationInstruction + '\\n' +\n      (previousEmailBody\n        ? 'PREVIOUS EMAIL ALREADY SENT TO THIS PROSPECT (write the NEXT message in the thread, do NOT repeat it, do NOT reintroduce TAC-TIC from scratch):\\nSubject: ' + previousEmailSubject + '\\n' + previousEmailBody + '\\n'\n        : 'No previous email content is available; write a short, natural follow-up that assumes an earlier message was already sent.\\n')\n    : '';\n  const signatureNameFr = assignedToName || 'L’équipe TAC-TIC';\n  const signatureNameEn = assignedToName || 'The TAC-TIC Team';\n\n  const frenchSignals = [\n    'bonjour',\n    'nous',\n    'voulons',\n    'souhaitons',\n    'besoin',\n    'processus',\n    'commercial',\n    'commerciaux',\n    'relance',\n    'relances',\n    'automatiser',\n    'automatisation',\n    'prioriser',\n    'prospects',\n    'tableau de bord',\n    'demande',\n    'demandes'\n  ];\n\n  const lowerMessage = originalMessage.toLowerCase();\n  const isFrench = frenchSignals.some((signal) => lowerMessage.includes(signal));\n\n  const targetLanguage = isFrench ? 'French' : 'English';\n\n  const frenchGreetingExample = prospectName\n    ? `Bonjour ${prospectName},`\n    : 'Bonjour,';\n\n  const englishGreetingExample = prospectName\n    ? `Hello ${prospectName},`\n    : 'Hello,';\n\n  return JSON.stringify({\n    model: 'mistralai/mistral-large-2512',\n    temperature: 0.2,\n    max_tokens: 1200,\n    response_format: { type: 'json_object' },\n    messages: [\n      {\n        role: 'system',\n        content:\n          'You are ' + (assignedToName || 'a sales advisor') + ', an expert B2B sales advisor at TAC-TIC. ' +\n          (isFollowUp\n            ? 'You are writing a FOLLOW-UP message in an ongoing email thread: an earlier email was already sent to this prospect and received no answer. This is NOT a first contact.\\n\\n'\n            : 'You write personalized sales emails for prospects who have just submitted a contact form.\\n\\n') +\n          'You write like a real human sales expert who has carefully read the prospect message and understood their specific business problem. You never write generic templates.\\n\\n' +\n          'Core rules:\\n' +\n          '- Write in the same language as the prospect message (French if message is in French, English otherwise)\\n' +\n          '- Never start with \"Merci pour votre intérêt\" or \"Thank you for your interest\" or \"Suite à votre demande\" — these are dead phrases that kill conversion\\n' +\n          '- Never use hollow marketing phrases like \"solution révolutionnaire\", \"leader du marché\", \"parfait pour vous\"\\n' +\n          '- Never invent prices, dates, meetings, contracts\\n' +\n          '- Never claim the prospect is already a customer\\n' +\n          '- Never mention technical terms like workflows, webhooks, API, database\\n' +\n          '- Always use the prospect full name in greeting\\n' +\n          '- Never use M., Mme, Monsieur, Madame\\n' +\n          '- The email must feel written by a real person who understood the specific situation\\n' +\n          '- Maximum 120 words in the email body\\n' +\n          '- One single clear call to action at the end\\n' +\n          '- Return only valid JSON, no markdown'\n      },\n      {\n        role: 'user',\n        content:\n          (isFollowUp ? 'Write a professional B2B FOLLOW-UP email for this prospect.' : 'Write a professional B2B sales email for this prospect.') + '\\n\\n' +\n          'PROSPECT CONTEXT:\\n' +\n          'Name: ' + prospectName + '\\n' +\n          'Company: ' + companyName + '\\n' +\n          'Their exact message: ' + originalMessage + '\\n' +\n          'AI analysis of their need: ' + aiSummary + '\\n' +\n          'Purchase intention: ' + intention + '\\n' +\n          'Urgency level: ' + urgency + followUpBlock + '\\n\\n' +\n          (isFollowUp\n            ? 'WRITING INSTRUCTIONS (FOLLOW-UP — an email was already sent, it got no reply):\\n' +\n              '1. Open by explicitly referring to your PREVIOUS email that went unanswered — one short, natural, non-guilt-tripping sentence\\n' +\n              '2. Never reintroduce TAC-TIC as if this were a first contact, and never thank them for their interest\\n' +\n              '3. Add ONE NEW concrete element of value that was NOT in the previous email\\n' +\n              '4. End with ONE simple low-friction question (a short call, or a plain yes/no)\\n' +\n              '5. Sign with the commercial name\\n\\n'\n            : 'WRITING INSTRUCTIONS:\\n' +\n              '1. Read the prospect message carefully and identify their ONE main specific problem\\n' +\n              '2. Write the first sentence to show you understood THAT specific problem — not a generic intro\\n' +\n              '3. In the second paragraph, explain ONE concrete way TAC-TIC solves that exact problem with a realistic benefit (time saved, leads not lost, etc.)\\n' +\n              '4. End with ONE simple question proposing a short 20-minute call\\n' +\n              '5. Sign with the commercial name\\n\\n') +\n          'EMAIL QUALITY RULES:\\n' +\n          '- Subject: max 50 chars, include company name or a number or a question, never generic\\n' +\n          '- First sentence: must reference the specific problem from their message, not a thank you\\n' +\n          '- Body: 80-120 words maximum\\n' +\n          '- ONE call to action only\\n' +\n          '- Tone: professional but human, like a real person wrote it after reading their message carefully\\n\\n' +\n          'SIGNATURE RULES:\\n' +\n          '- FR closing: exactly this structure:\\n' +\n          '  Cordialement,\\n' +\n          '  [commercial name]\\n' +\n          '  Conseiller commercial — TAC-TIC\\n' +\n          '- EN closing: exactly this structure:\\n' +\n          '  Best regards,\\n' +\n          '  [commercial name]\\n' +\n          '  Sales Advisor — TAC-TIC\\n' +\n          '- Use: ' + signatureNameFr + ' for FR\\n' +\n          '- Use: ' + signatureNameEn + ' for EN\\n\\n' +\n          'EXAMPLE OF GOOD EMAIL (for reference only, do NOT copy this, generate a unique email based on the real prospect message):\\n\\n' +\n          'If prospect said they have 15 salespeople losing leads due to poor follow-up:\\n' +\n          'Subject: \"Tactic — 0 prospect oublié avec l’IA ?\"\\n' +\n          'Body: \"Votre message m’a interpellé — perdre des opportunités faute de suivi avec une équipe de 15 commerciaux, c’est exactement ce que TAC-TIC résout. Nos clients PME dans la distribution automatisent leurs relances et ne laissent plus passer aucun prospect. Seriez-vous disponible 20 minutes cette semaine pour voir ce que ça donnerait chez Tactic ?\"\\n\\n' +\n          'If prospect asked about pricing:\\n' +\n          'Subject: \"Tactic — les tarifs TAC-TIC en 5 min ?\"\\n' +\n          'Body: \"Vous avez posé la bonne question — avant de vous donner des chiffres, je préfère comprendre exactement votre situation pour vous proposer la formule qui correspond vraiment à Tactic. Seriez-vous disponible 20 minutes cette semaine ?\"\\n\\n' +\n          'IMPORTANT: Generate a UNIQUE email based on the REAL prospect message above. Do not copy the examples. The email must feel written specifically for this prospect and their specific situation.\\n\\n' +\n          'Return only valid JSON:\\n' +\n          '{\\n' +\n          '  \"email_subject\": \"...\",\\n' +\n          '  \"email_body\": \"<p>...</p>\",\\n' +\n          '  \"tone\": \"professional\",\\n' +\n          '  \"cta\": \"schedule_call\",\\n' +\n          '  \"short_summary\": \"one-line summary\",\\n' +\n          '  \"communication_status\": \"draft_generated\"\\n' +\n          '}'\n      }\n    ]\n  });\n})() }}",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          },
+          "timeout": 90000
+        }
+      },
+      "id": "1713ec47-c55b-4918-af04-d711939254c9",
+      "name": "🧠 OpenRouter - Generate Email Draft",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "position": [
+        208,
+        144
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const prepared = $('🧾 Prepare Communication Context').first().json;\nconst lead = prepared.lead || {};\nconst startedAt = prepared.started_at;\n\nconst clean = (value, max = 5000) => {\n  if (value === undefined || value === null) return '';\n  return String(value).trim().substring(0, max);\n};\n\nconst escapeHtml = (value) => {\n  return clean(value, 10000)\n    .replace(/&/g, '&amp;')\n    .replace(/</g, '&lt;')\n    .replace(/>/g, '&gt;')\n    .replace(/\"/g, '&quot;')\n    .replace(/'/g, '&#039;');\n};\n\nconst stripHtml = (value) => {\n  return clean(value, 10000)\n    .replace(/<br\\s*\\/?>/gi, ' ')\n    .replace(/<\\/p>/gi, ' ')\n    .replace(/<[^>]*>/g, ' ')\n    .replace(/\\s+/g, ' ')\n    .trim();\n};\n\nconst normalizeLower = (value) => clean(value, 500).toLowerCase();\n\nconst fullName = clean(lead.full_name, 200);\nconst companyName = clean(lead.company_name, 200);\nconst productService = clean(lead.product_service || 'TAC-TIC', 200);\nconst originalMessage = clean(lead.message, 1200);\nconst aiSummary = clean(lead.ai_summary, 1200);\nconst recommendedAction = clean(lead.recommended_action, 1000);\nconst nextAction = clean(lead.next_action, 1000);\nconst intention = normalizeLower(lead.intention || 'unknown');\nconst urgency = normalizeLower(lead.urgency || 'medium');\nconst priority = normalizeLower(lead.priority || 'medium');\n\nconst displayName = fullName || 'Madame, Monsieur';\n\n// Intention de generation envoyee par FastAPI -> draft_type stocke en base.\n// 'information' est une relance de clarification: on la stocke en follow_up.\nconst draftTypeIn = normalizeLower(lead.draft_type || 'initial');\nconst DRAFT_TYPE_MAP = {\n  initial: 'sales',\n  follow_up: 'follow_up',\n  reactivation: 'reactivation',\n  information: 'follow_up'\n};\nconst draftTypeOut = DRAFT_TYPE_MAP[draftTypeIn] || 'sales';\nconst companyPart = companyName ? ` pour ${escapeHtml(companyName)}` : '';\n\nconst productLower = productService.toLowerCase();\nconst messageLower = originalMessage.toLowerCase();\n\nconst isDemoNeed =\n  intention.includes('demo') ||\n  messageLower.includes('demo') ||\n  messageLower.includes('démonstration') ||\n  messageLower.includes('demonstration');\n\nconst isQuoteNeed =\n  intention.includes('purchase') ||\n  messageLower.includes('devis') ||\n  messageLower.includes('prix') ||\n  messageLower.includes('tarif') ||\n  messageLower.includes('acheter');\n\nconst isSupportNeed =\n  intention.includes('support') ||\n  messageLower.includes('support') ||\n  messageLower.includes('problème') ||\n  messageLower.includes('probleme');\n\nconst isAutomationNeed =\n  productLower.includes('automation') ||\n  productLower.includes('automatisation') ||\n  messageLower.includes('automatiser') ||\n  messageLower.includes('automatisation') ||\n  messageLower.includes('workflow');\n\nconst isCrmNeed =\n  productLower.includes('crm') ||\n  messageLower.includes('crm') ||\n  messageLower.includes('lead') ||\n  messageLower.includes('prospect');\n\nconst inferCta = () => {\n  if (isDemoNeed) return 'book_demo';\n  if (isQuoteNeed) return 'schedule_call';\n  if (isSupportNeed) return 'reply_email';\n  return 'schedule_call';\n};\n\n// --------------------------------------------------\n// 1. Parse OpenRouter response (fail loudly, never fake a draft)\n// --------------------------------------------------\nlet draft = {};\nlet llmFailure = null;\n\n// OpenRouter renvoie {error:{message,code}} quand le modele est mort/indispo.\n// L'ancien code faisait `content || '{}'` -> JSON.parse OK -> echec invisible.\nconst llmError = $json && $json.error ? $json.error : null;\nconst rawContent =\n  $json && $json.choices && $json.choices[0] && $json.choices[0].message\n    ? $json.choices[0].message.content\n    : null;\n\nif (llmError) {\n  llmFailure =\n    clean(llmError.message || 'OpenRouter returned an error', 500) +\n    (llmError.code ? ' (code ' + llmError.code + ')' : '');\n} else if (!rawContent) {\n  llmFailure = 'OpenRouter returned no completion content.';\n} else {\n  try {\n    draft = JSON.parse(\n      String(rawContent).replace(/```json/g, '').replace(/```/g, '').trim()\n    );\n  } catch (error) {\n    llmFailure = 'AI response was not valid JSON: ' + clean(error.message, 200);\n  }\n}\n\n// --------------------------------------------------\n// 2. Validate AI output - no silent static fallback\n// --------------------------------------------------\nconst parsedSubject = clean(draft.email_subject, 300);\nconst parsedBody = clean(draft.email_body, 10000);\nconst parsedBodyText = stripHtml(parsedBody);\n\nif (!llmFailure && (!parsedBody || parsedBodyText.length < 120)) {\n  llmFailure = 'AI returned an empty or too short email body.';\n}\n\nconst now = new Date().toISOString();\nconst durationSeconds = Math.round((Date.now() - new Date(startedAt).getTime()) / 1000);\n\n// Arret net : ne JAMAIS renvoyer un template non-IA comme un brouillon genere.\nif (llmFailure) {\n  return {\n    lead_id: lead.lead_id,\n    draft_type: draftTypeOut,\n    generated_by: 'none',\n    email_subject: null,\n    email_body: null,\n    communication_status: 'llm_generation_failed',\n    error_message: llmFailure,\n    next_action: 'Fix the AI generation error and retry the draft generation',\n    workflow_execution: {\n      workflow_name: 'FP CRM 02 - Intelligent Communication Draft',\n      process: 'CRM',\n      related_object_type: 'crm_lead',\n      related_object_id: lead.lead_id,\n      trigger_source: 'fastapi',\n      status: 'error',\n      started_at: startedAt,\n      finished_at: now,\n      duration_seconds: durationSeconds,\n      input_summary: 'Generate communication draft for ' + lead.email,\n      output_summary: 'LLM generation failed',\n      result_summary: 'Communication draft generation failed; no draft was created.',\n      error_message: llmFailure,\n      agent_name: 'CRM Communication Agent'\n    },\n    agent_run: {\n      agent_id: 'crm_communication_agent',\n      agent_name: 'CRM Communication Agent',\n      process: 'CRM',\n      requested_by: lead.requested_by || 'user_030',\n      status: 'error',\n      started_at: startedAt,\n      finished_at: now,\n      input_summary: JSON.stringify({\n        lead_id: lead.lead_id,\n        draft_type: draftTypeIn\n      }).substring(0, 500),\n      output_summary: 'LLM generation failed',\n      error_message: llmFailure\n    }\n  };\n}\n\nconst emailSubject = clean(parsedSubject, 300);\nconst emailBody = clean(parsedBody, 10000);\n\nconst allowedStatuses = ['draft_generated', 'communication_draft_generated', 'waiting_review'];\nconst communicationStatus = allowedStatuses.includes(clean(draft.communication_status, 100))\n  ? clean(draft.communication_status, 100)\n  : 'draft_generated';\n\nconst allowedTones = ['professional', 'friendly', 'urgent', 'informative'];\nconst tone = allowedTones.includes(clean(draft.tone, 100))\n  ? clean(draft.tone, 100)\n  : urgency === 'high'\n    ? 'urgent'\n    : 'professional';\n\nconst allowedCtas = ['schedule_call', 'book_demo', 'reply_email', 'send_documents'];\nconst cta = allowedCtas.includes(clean(draft.cta, 100))\n  ? clean(draft.cta, 100)\n  : inferCta();\n\nconst shortSummary = clean(\n  draft.short_summary ||\n    'AI communication draft (' + draftTypeIn + ') generated for ' +\n      (fullName || companyName || 'lead') + ' about ' + productService + '.',\n  1000\n);\n\n// --------------------------------------------------\n// 3. Build FastAPI communication-result payload\n// --------------------------------------------------\nreturn {\n  lead_id: lead.lead_id,\n\n  draft_type: draftTypeOut,\n  generated_by: 'llm',\n  email_subject: emailSubject,\n  email_body: emailBody,\n  communication_status: communicationStatus,\n  email_priority: lead.priority || 'medium',\n  tone,\n  cta,\n\n  // Important: no automatic email sending.\n  // The next action remains human validation.\n  next_action: 'Review generated communication draft before any email is sent',\n\n  interaction: {\n    interaction_type: 'communication_draft',\n    channel: 'email',\n    summary: `Sales communication draft generated for human review. Subject: ${emailSubject}`\n  },\n\n  workflow_execution: {\n    workflow_name: 'FP CRM 02 - Intelligent Communication Draft',\n    process: 'CRM',\n    related_object_type: 'crm_lead',\n    related_object_id: lead.lead_id,\n    trigger_source: 'fastapi',\n    status: 'success',\n    started_at: startedAt,\n    finished_at: now,\n    duration_seconds: durationSeconds,\n    input_summary: `Generate communication draft for ${lead.email}`,\n    output_summary: emailSubject,\n    result_summary: 'AI communication draft generated for human validation.',\n    error_message: null,\n    agent_name: 'CRM Communication Agent'\n  },\n\n  agent_run: {\n    agent_id: 'crm_communication_agent',\n    agent_name: 'CRM Communication Agent',\n    process: 'CRM',\n    requested_by: lead.requested_by || 'user_030',\n    status: 'success',\n    started_at: startedAt,\n    finished_at: now,\n    input_summary: JSON.stringify({\n      lead_id: lead.lead_id,\n      email: lead.email,\n      intention: lead.intention,\n      urgency: lead.urgency,\n      priority: lead.priority,\n      product_service: lead.product_service,\n      ai_summary: lead.ai_summary,\n      recommended_action: lead.recommended_action\n    }).substring(0, 500),\n    output_summary: shortSummary,\n    error_message: null\n  }\n};"
+      },
+      "id": "9d0c7200-e1ab-43f0-ab6d-a4359ff21f04",
+      "name": "📝 Parse Communication Draft",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        512,
+        144
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ 'http://host.docker.internal:8000' + '/api/n8n/crm/communication-result' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "X-FlowPilot-Secret",
+              "value": "={{ $env.FLOWPILOT_INTERNAL_SECRET }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}",
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "id": "26d66513-ef9a-403f-81dd-a57334bbe632",
+      "name": "📨 Callback Communication Result",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "position": [
+        768,
+        144
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ (() => { const p = $('📝 Parse Communication Draft').first().json; return JSON.stringify(p.communication_status === 'llm_generation_failed' ? { ok: false, error: 'llm_generation_failed', message: p.error_message, lead_id: p.lead_id, generated_by: p.generated_by } : { ok: true, message: 'Communication draft generated', lead_id: p.lead_id, draft_type: p.draft_type, generated_by: p.generated_by }); })() }}",
+        "options": {}
+      },
+      "id": "1d445a1a-9cd4-4ba0-9572-d33b23a03ba3",
+      "name": "✅ Respond Draft Generated",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1040,
+        144
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ ok: false, errors: $('🧾 Prepare Communication Context').first().json.errors }) }}",
+        "options": {
+          "responseCode": 400
+        }
+      },
+      "id": "0b6948e2-6c2a-416f-8c0f-90fd79c65c06",
+      "name": "❌ Respond Communication Error",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        208,
+        432
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "🔗 FastAPI Trigger - Generate Communication Draft": {
+      "main": [
+        [
+          {
+            "node": "🧾 Prepare Communication Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "🧾 Prepare Communication Context": {
+      "main": [
+        [
+          {
+            "node": "✅ Authorized + Valid?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "✅ Authorized + Valid?": {
+      "main": [
+        [
+          {
+            "node": "🧠 OpenRouter - Generate Email Draft",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "❌ Respond Communication Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "🧠 OpenRouter - Generate Email Draft": {
+      "main": [
+        [
+          {
+            "node": "📝 Parse Communication Draft",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "📝 Parse Communication Draft": {
+      "main": [
+        [
+          {
+            "node": "📨 Callback Communication Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "📨 Callback Communication Result": {
+      "main": [
+        [
+          {
+            "node": "✅ Respond Draft Generated",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "errorWorkflow": "FP_CRM_00_Error_Handler"
+  },
+  "versionId": "1d8517ef-999b-42d6-afe8-5cc966ad2595",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "c2bc27f4b29078542e7459634f5428e5cc2a38aad96ad624b476314eca5b266a"
+  },
+  "id": "7pk00foD7SrxmnMC",
+  "tags": []
+}
